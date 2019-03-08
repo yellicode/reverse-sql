@@ -1,0 +1,279 @@
+import * as sql from 'mssql';
+import { BuilderOptions, BuilderObjecTypes } from './builder-options';
+import { SqlServerTable, SqlServerDatabase, QueryType, SqlServerParameter, SqlParameterDirection, SqlResultSetColumn } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure } from '@yellicode/sql-server';
+import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
+import { storedProceduresSql, parametersSql } from './queries/query-statements';
+import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult } from './queries/query-interfaces';
+import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+
+export class ReverseDbBuilder {
+    private pool: sql.ConnectionPool;
+    private options: BuilderOptions;
+    private includeTables: boolean;
+    private includeTableTypes: boolean;
+    private includeStoredProcedures: boolean;
+    private logger: Logger;
+
+    constructor(connectionString: string, options?: BuilderOptions);
+    constructor(connectionPool: sql.ConnectionPool, options?: BuilderOptions);
+    constructor(poolOrConnectionString: any, options?: BuilderOptions) {
+        this.options = options || {};
+        this.logger = new ConsoleLogger(console, LogLevel.Verbose);
+
+        if (!poolOrConnectionString)
+            throw 'Cannot create SqlServerDbBuilder instance. Please provide a connection pool or connection string in the constructor';
+        if (typeof poolOrConnectionString == 'string') {
+            this.pool = new sql.ConnectionPool(poolOrConnectionString);
+        }
+        else this.pool = poolOrConnectionString;
+
+        const objectTypes = this.options.objectTypes || BuilderObjecTypes.All;
+        this.includeTables = !!(objectTypes & BuilderObjecTypes.Tables);
+        this.includeTableTypes = !!(objectTypes & BuilderObjecTypes.TableTypes);
+        this.includeStoredProcedures = !!(objectTypes & BuilderObjecTypes.StoredProcedures);
+    } 
+
+    public build(): Promise<SqlServerDatabase> {
+        return this.connect()
+            .then(() => {
+                return this.buildInternal();
+            });
+    }
+
+    private connect(): Promise<void> {
+        if (this.pool.connected) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            this.pool.connect()
+                .then((p) => {
+                    this.pool = p;
+                    this.logger.verbose(`Successfully connected to database.`);
+                    resolve();
+                }).catch((err) => {
+                    this.logger.error(`Failed to connect to the database: ${err}.`);
+                    reject(`Failed to connect to the database: ${err}.`);
+                });
+        })
+
+    }
+
+    private buildInternal(): Promise<SqlServerDatabase> {
+        let tables: SqlServerTable[];
+        let tableTypes: SqlServerTable[];
+        let storedProcedures: SqlServerStoredProcedure[];
+
+        const promises: Promise<void>[] = [];
+
+        // 1: Tables
+        promises.push(this.buildTables().then(t => {
+            tables = t;
+        }));
+
+        // 2: Table types
+        tableTypes = [];
+
+        // 3: Stored procedures
+        promises.push(this.buildStoredProcedures().then(sp => {
+            storedProcedures = sp;
+        }));
+
+        return Promise.all(promises).then(() => {
+            this.logger.info(`Successfully created database model with ${tables.length} tables, ${tableTypes.length} table types and ${storedProcedures.length} stored procedures.`);
+            const db: SqlServerDatabase = {
+                tables: tables,
+                tableTypes: tableTypes,
+                storedProcedures: storedProcedures
+            }
+            return db;
+        })
+    }
+
+    private buildTables(): Promise<SqlServerTable[]> {
+        if (!this.includeTables)
+            return Promise.resolve([]);
+
+        return Promise.resolve([]);
+    }
+
+    private buildStoredProcedures(): Promise<SqlServerStoredProcedure[]> {
+        // https://stackoverflow.com/questions/14574773/retrieve-column-names-and-types-of-a-stored-procedure
+        // or, see ReadStoredProcReturnObject in https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/master/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude
+
+        if (!this.includeStoredProcedures)
+            return Promise.resolve([]);
+
+        // Record sets that neeed to be combined into a single SqlServerStoredProcedure[] result
+        let objectsRecordSet: sql.IRecordSet<StoredProceduresSqlResult> | null;
+        let parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null;
+
+        const recordSetPromises: Promise<void>[] = [];
+
+        // 1. Get the actual objects 
+        recordSetPromises.push(this.pool
+            .request().query(storedProceduresSql)
+            .then((results: sql.IResult<StoredProceduresSqlResult>) => {
+                if (!results || !results.recordset.length) {
+                    this.logger.warn('Could not find any stored procedures. If this is unexpected, please check the current user permissions.');
+                    objectsRecordSet = null;
+                }
+                objectsRecordSet = results.recordsets[0];
+            })           
+        );
+
+        // 2. Get the parameters
+        recordSetPromises.push(this.pool.request().query(parametersSql)
+            .then((results: sql.IResult<ParametersSqlResult>) => {
+                parametersRecordSet = results.recordsets[0];
+            })
+        );
+       
+
+        // We got all we need, put it all together
+        return Promise.all(recordSetPromises).then(() => {
+            const storedProcs: SqlServerStoredProcedure[] = [];
+            if (!objectsRecordSet) return storedProcs;
+
+            objectsRecordSet.forEach(o => {
+                if (o.ROUTINE_TYPE !== 'PROCEDURE')
+                    return; // can also be a Table-Valued function, we should support these in the future
+
+                if (!this.shouldIncludedStoredProcedure(o.SPECIFIC_SCHEMA, o.SPECIFIC_NAME)) 
+                    return;
+                    
+                const proc: SqlServerStoredProcedure = {
+                    queryType: QueryType.Unknown,
+                    name: o.SPECIFIC_NAME,
+                    schemaName: o.SPECIFIC_SCHEMA,
+                    relatedTable: null,
+                    modelType: null, // should be a null, let's genererate C# classes from the output parameters
+                    parameters: this.getParametersForStoredProcedure(parametersRecordSet, o),
+                    resultSets: [] // we will retrieve these below
+                };
+                
+                storedProcs.push(proc);
+            });
+            return storedProcs;
+        }).then((storedProcs => {
+            // 3: Get the result set(s)         
+            // console.log(`Found ${storedProcs.length} stored procedures. Discovering result sets...`);            
+            return this.populateStoredProcResultSets(storedProcs).then(() => {
+                return storedProcs;
+            });
+        }));
+
+    }
+
+    private populateStoredProcResultSets(storedProcs: SqlServerStoredProcedure[]): Promise<void[]> {
+        const promises: Promise<void>[] = [];
+
+        storedProcs.forEach(sp => {
+            
+            const sql = `SELECT column_ordinal, name, TYPE_NAME(system_type_id) type_name, source_table, source_column, is_nullable, is_hidden FROM sys.dm_exec_describe_first_result_set('EXEC [${sp.schemaName}].[${sp.name}]', NULL, 1)`;
+            // console.log(`Retrieving result set of ${sp.name}.`);            
+            promises.push(this.pool.request().query(sql).then((results: sql.IResult<ResultSetSqlResult>) => {
+                const resultcolumns = results.recordsets[0];
+                if (!resultcolumns || !resultcolumns.length) 
+                    return;
+             
+                const resultSetColumns: SqlResultSetColumn[] = [];
+                resultcolumns.filter(c => !c.is_hidden).forEach(c => {                   
+                    const ordinal = +c.column_ordinal;
+                    if (ordinal === 0)
+                         return;
+
+                    const col: SqlResultSetColumn = {                                     
+                        ordinal: ordinal - 1,
+                        name: c.name || undefined,
+                        sourceTable: c.source_table,
+                        sourceColumn: c.source_column,
+                        isForeignKey: false,
+                        isJoined: false,
+                        isNullable: c.is_nullable,
+                        parentColumn: null,
+                        typeName: c.type_name,
+                        modelTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object' 
+                    }
+                    resultSetColumns.push(col);
+                });
+                
+                if (!resultSetColumns.length)
+                    return;
+
+                // Sort by ordinal (just to be sure)
+                resultSetColumns.sort((a, b) => {
+                    return (a.ordinal < b.ordinal) ? -1 : (a.ordinal > b.ordinal) ? 1 : 0;
+                });
+                
+                // Because we use dm_exec_describe_first_result_set, we will never get more than one result set.
+                // The alternative, SET FMTONLY ON/OFF, is deprecated in newer versions of SQL Server
+                sp.resultSets!.push({columns: resultSetColumns});
+            }));
+        });
+        return Promise.all(promises);
+    }
+
+    private getParametersForStoredProcedure(
+        parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null,
+        storedProcedure: StoredProceduresSqlResult): SqlServerParameter[] {
+
+        const result: SqlServerParameter[] = [];
+        if (!parametersRecordSet)
+            return result;
+
+        parametersRecordSet
+            .filter(p => p.SPECIFIC_NAME === storedProcedure.SPECIFIC_NAME && p.SPECIFIC_SCHEMA === storedProcedure.SPECIFIC_SCHEMA)
+            .forEach(p => {
+                const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE;
+                const sqlTypeName = p.USER_DEFINED_TYPE || p.DATA_TYPE; // USER_DEFINED_TYPE includes the schema, is this helpful?
+                const modelTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
+                const isNullable = false; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
+
+                const parameter: SqlServerParameter = {
+                    // SqlParameter
+                    name: p.PARAMETER_NAME, // includes @                    
+                    isFilter: false,
+                    isIdentity: false,
+                    modelProperty: null,
+                    modelTypeName: modelTypeName,
+                    tableName: null,
+                    columnName: null,                    
+                    typeName: sqlTypeName, 
+                    length: p.CHARACTER_MAXIMUM_LENGTH || null,
+                    precision: p.NUMERIC_PRECISION || null,
+                    scale: p.NUMERIC_SCALE || null,
+                    direction: this.parseParameterMode(p.PARAMETER_MODE, p.PARAMETER_NAME),
+                    isMultiValued: isTableType,
+                    // SqlServerParameter
+                    isReadOnly: isTableType,
+                    isNullable: isNullable,
+                    isTableValued: isTableType,
+                    tableType: null // TODO: we should connect this to a reverse-engineered table!
+                };
+                result.push(parameter);
+            });
+        return result;
+    }
+    
+    private parseParameterMode(mode: ParameterMode, name: string): SqlParameterDirection {
+        switch(mode){
+            case 'IN':
+                return SqlParameterDirection.Input;
+            case 'OUT':
+                return SqlParameterDirection.Output;
+            case 'INOUT':
+                return SqlParameterDirection.InputOutput;
+            default:
+                this.logger.warn(`Unrecognised parameter mode '${mode}' for parameter '${name}'. Falling back to SqlParameterDirection.Input.`);
+                return SqlParameterDirection.Input;
+        }
+    }
+
+    private shouldIncludedStoredProcedure(schema: string, name: string): boolean {
+        if (!this.options.storedProcedureFilter) return true;
+
+        return this.options.storedProcedureFilter(schema, name);
+    }
+}

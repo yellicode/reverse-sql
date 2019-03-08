@@ -1,0 +1,37 @@
+{
+  "name": "reverse-sql",
+  "version": "1.0.0",
+  "description": " Yellicode - an extensible code generator.",
+  "keywords": [],
+  "license": "MIT",
+  "main": "dist/bundles/reverse-sql.umd.js",
+  "module": "dist/es5/reverse-sql.js",
+  "es2015": "dist/es6/reverse-sql.js",
+  "types": "dist/types/reverse-sql.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "github:yellicode/yellicode-reverse-sql.git"
+  },
+  "scripts": {
+    "build:es5": "tsc",
+    "build:es6": "tsc -m es6 -t es6 --outDir dist/es6 --declaration --declarationDir dist/types",
+    "build:umd": "./node_modules/.bin/rollup --config rollup.config.js",
+    "build:dist": "npm run build:es5 & npm run build:es6 & npm run build:umd",
+    "build": "npm run build:dist",
+    "prepare": "npm run build:dist"
+  },
+  "devDependencies": {
+    "@types/mssql": "^4.0.12",
+    "@types/node": "^11.9.4",
+    "@yellicode/templating": "^1.2.0",
+    "rollup": "^0.66.6"
+  },
+  "dependencies": {
+    "mssql": "^4.3.2",
+    "@yellicode/core": "^1.0.1",
+    "@yellicode/csharp": "^1.4.1",
+    "@yellicode/dotnet-profile": "^1.0.0",
+    "@yellicode/elements": "^1.0.2",
+    "@yellicode/sql-server": "^1.0.0"
+  }
+}
