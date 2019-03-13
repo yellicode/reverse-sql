@@ -20,8 +20,8 @@ export class ResultSetClassBuilder {
             sp.resultSets[0].columns.forEach((col) => {
                 const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(col);               
                 
-                const property: PropertyDefinition = { name: propertyName, typeName: col.modelTypeName, accessModifier: 'public' };
-                property.isNullable = col.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.modelTypeName);
+                const property: PropertyDefinition = { name: propertyName, typeName: col.objectTypeName, accessModifier: 'public' };
+                property.isNullable = col.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.objectTypeName);
 
                 classDefinition.properties!.push(property);
             });

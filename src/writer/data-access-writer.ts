@@ -73,7 +73,7 @@ export class DataAccessWriter {
                         this.csharp.writeLine(`if (!dataRecord.IsDBNull(${c.ordinal}))`);
                         this.csharp.writeCodeBlock(() => {
                             const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(c);
-                            const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.modelTypeName);
+                            const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
                             // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)                        
                             this.csharp.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(${c.ordinal});`);
                         });
@@ -108,7 +108,7 @@ export class DataAccessWriter {
             sp.parameters.forEach(p => {
                 const methodParameter: ParameterDefinition = {
                     name: this.objectNameProvider.getParameterName(p),
-                    typeName: p.modelTypeName
+                    typeName: p.objectTypeName
                 };
                 methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
                 // We don't know if the SP parameter (or the related column) is nullable, so allow every input parameter to be null
@@ -165,7 +165,7 @@ export class DataAccessWriter {
     private writeCommandParameter(p: SqlServerParameter, methodParametersBySqlName: Map<string, ParameterDefinition>): void {
         const methodParameter = methodParametersBySqlName.get(p.name)!;
         const variableName = `${methodParameter.name}Parameter`;
-        const sqlDbType = p.isTableValued ? 'Structured' : SystemDotDataNameMapper.getSqlDbType(p.typeName);
+        const sqlDbType = p.isTableValued ? 'Structured' : SystemDotDataNameMapper.getSqlDbType(p.sqlTypeName);
         // console.log(`getFromSqlType for ${p.typeName} returned ${sqlDbType}`);
         this.csharp.writeLine(`// ${p.name}`);
         if (methodParameter.isOutput) {

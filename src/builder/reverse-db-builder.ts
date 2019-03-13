@@ -193,8 +193,8 @@ export class ReverseDbBuilder {
                         isJoined: false,
                         isNullable: c.is_nullable,
                         parentColumn: null,
-                        typeName: c.type_name,
-                        modelTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object' 
+                        sqlTypeName: c.type_name,
+                        objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object' 
                     }
                     resultSetColumns.push(col);
                 });
@@ -228,7 +228,7 @@ export class ReverseDbBuilder {
             .forEach(p => {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE;
                 const sqlTypeName = p.USER_DEFINED_TYPE || p.DATA_TYPE; // USER_DEFINED_TYPE includes the schema, is this helpful?
-                const modelTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
+                const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
                 const isNullable = false; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
 
                 const parameter: SqlServerParameter = {
@@ -236,11 +236,11 @@ export class ReverseDbBuilder {
                     name: p.PARAMETER_NAME, // includes @                    
                     isFilter: false,
                     isIdentity: false,
-                    modelProperty: null,
-                    modelTypeName: modelTypeName,
+                    objectProperty: null,
+                    objectTypeName: objectTypeName,
                     tableName: null,
                     columnName: null,                    
-                    typeName: sqlTypeName, 
+                    sqlTypeName: sqlTypeName, 
                     length: p.CHARACTER_MAXIMUM_LENGTH || null,
                     precision: p.NUMERIC_PRECISION || null,
                     scale: p.NUMERIC_SCALE || null,
