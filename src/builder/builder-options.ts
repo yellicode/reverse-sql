@@ -15,4 +15,5 @@ export interface BuilderOptions {
     objectTypes?: BuilderObjecTypes;
 
     storedProcedureFilter?: (schema: string, name: string) => boolean;
+    tableFilter?: (schema: string, name: string) => boolean;
 }

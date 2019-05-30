@@ -71,6 +71,45 @@ export interface ResultSetSqlResult {
   is_hidden: boolean;
 }
 
+export interface ColumnsSqlResult extends ObjectResult {
+  TABLE_NAME: string,
+  TABLE_SCHEMA: string,
+  ORDINAL_POSITION: number,
+  COLUMN_DEFAULT: string | null,  
+  IS_NULLABLE: 'NO' | 'YES'; 
+  DATA_TYPE: string;
+  CHARACTER_MAXIMUM_LENGTH: number | null;
+  NUMERIC_PRECISION: number | null;
+  NUMERIC_SCALE: number | null;
+  // DATETIME_PRECISION: number | null,
+  IS_IDENTITY: boolean;
+  IS_ROWGUID_COL: boolean;
+  IS_COMPUTED: boolean;
+}
+
+export interface ColumnConstraintsSqlResult {
+  TABLE_NAME: string;
+  TABLE_SCHEMA: string,
+  COLUMN_NAME: string;  
+  CONSTRAINT_NAME: string;
+  CONSTRAINT_TYPE: 'CHECK' | 'UNIQUE' | 'PRIMARY KEY' | 'FOREIGN KEY';
+  /**
+   * If the constraint is a foreign key constraint, contains 
+   * the schema of the primary key table.
+   */
+  PK_TABLE_SCHEMA: string | null;
+  /**
+   * If the constraint is a foreign key constraint, contains 
+   * the name of the primary key table.
+   */
+  PK_TABLE_NAME: string | null;
+  /**
+   * If the constraint is a foreign key constraint, contains 
+   * the name of the primary key column.
+   */
+  PK_COLUMN_NAME: string | null;
+}
+
 // /**
 //  * Base SQL object.
 //  */

@@ -121,7 +121,7 @@ export class DataAccessWriter {
             // Write          
             this.csharp.writeMethodBlock(method, () => {
                 this.csharp.writeLine(`using (var connection = new SqlConnection(${connectionStringFieldName}))`);
-                this.csharp.writeLine(`using (var command = new SqlCommand("[${sp.schemaName}].[${sp.name}]", connection) { CommandType = CommandType.StoredProcedure })`);
+                this.csharp.writeLine(`using (var command = new SqlCommand("[${sp.schema}].[${sp.name}]", connection) { CommandType = CommandType.StoredProcedure })`);
                 this.csharp.writeCodeBlock(() => {
                     sp.parameters.forEach(p => {
                         this.writeCommandParameter(p, methodParametersBySqlName);

@@ -52,69 +52,116 @@ export const parametersSql = `
   WHERE P.IS_RESULT = 'NO' OR P.IS_RESULT IS NULL                               
 `;
 
-/**
- * Get SQL table information.
- */
-export const tablesSql = `
-  SELECT
-    o.object_id,
-    o.type,
-    s.name AS [schema],
-    o.name,
-    ISNULL(c.identity_count, 0) AS [identity_count]
-  FROM
-    sys.objects o
-    JOIN sys.schemas s ON o.schema_id = s.schema_id
-    LEFT JOIN (
-      SELECT
-        i.object_id,
-        count(1) AS [identity_count]
-      FROM
-        sys.identity_columns i
-      GROUP BY
-        i.object_id
-    ) c on c.object_id = o.object_id
-  where
-    o.type = 'U'
-    AND o.is_ms_shipped = 0
-  ORDER BY
-    s.name,
-    o.name
-`;
+export const columnsSql = `SELECT
+c.TABLE_SCHEMA AS SPECIFIC_SCHEMA,
+c.COLUMN_NAME AS SPECIFIC_NAME,
+c.TABLE_NAME,
+c.TABLE_SCHEMA,
+c.ORDINAL_POSITION,
+c.COLUMN_DEFAULT,
+c.IS_NULLABLE,
+c.DATA_TYPE,
+c.CHARACTER_MAXIMUM_LENGTH,
+c.NUMERIC_PRECISION,
+c.NUMERIC_SCALE,
+c.DATETIME_PRECISION,		
+sc.is_identity AS IS_IDENTITY,
+sc.is_rowguidcol AS IS_ROWGUID_COL,
+sc.is_computed AS IS_COMPUTED
+FROM
+INFORMATION_SCHEMA.COLUMNS c
 
-/**
- * Get SQL column information.
- */
-export const columnsSql = `
-  SELECT
-    c.object_id,
-    c.name,
-    tp.name AS [datatype],
-    tp.is_user_defined,
-    c.max_length,
-    c.is_computed,
-    c.precision,
-    c.scale AS [scale],
-    c.collation_name,
-    c.is_nullable,
-    dc.definition,
-    ic.is_identity,
-    ic.seed_value,
-    ic.increment_value,
-    cc.definition AS [formula]
-  FROM
-    sys.columns c
-    JOIN sys.types tp ON c.user_type_id = tp.user_type_id
-    LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
-    LEFT JOIN sys.default_constraints dc ON
-      c.default_object_id != 0
-      AND c.object_id = dc.parent_object_id
-      AND c.column_id = dc.parent_column_id
-    LEFT JOIN sys.identity_columns ic ON
-      c.is_identity = 1
-      AND c.object_id = ic.object_id
-      AND c.column_id = ic.column_id
-`;
+INNER JOIN sys.schemas AS ss ON c.TABLE_SCHEMA = ss.[name]
+LEFT OUTER JOIN sys.tables AS st ON st.schema_id = ss.schema_id AND st.[name] = c.TABLE_NAME
+LEFT OUTER JOIN sys.views AS sv ON sv.schema_id = ss.schema_id AND sv.[name] = c.TABLE_NAME
+INNER JOIN sys.all_columns AS sc ON sc.object_id = COALESCE( st.object_id, sv.object_id ) AND c.COLUMN_NAME = sc.[name]
+
+WHERE
+c.TABLE_NAME NOT IN ('EdmMetadata', '__MigrationHistory', '__RefactorLog', 'sysdiagrams')
+
+ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION`;
+
+export const columnConstraintsSql = `SELECT DISTINCT
+u1.TABLE_SCHEMA,
+u1.TABLE_NAME,
+u1.COLUMN_NAME,
+u1.CONSTRAINT_NAME,
+tc.CONSTRAINT_TYPE,
+u2.TABLE_SCHEMA PK_TABLE_SCHEMA,
+u2.TABLE_NAME AS PK_TABLE_NAME,
+u2.COLUMN_NAME AS PK_COLUMN_NAME
+FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE u1
+INNER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON
+    u1.TABLE_SCHEMA COLLATE DATABASE_DEFAULT = tc.CONSTRAINT_SCHEMA COLLATE DATABASE_DEFAULT
+    AND u1.TABLE_NAME = tc.TABLE_NAME AND u1.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+	ON rc.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT = u1.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT
+LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE u2
+	ON u2.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT = rc.UNIQUE_CONSTRAINT_NAME COLLATE DATABASE_DEFAULT`;
+
+// /**
+//  * Get SQL table information.
+//  */
+// export const tablesSql = `
+//   SELECT
+//     o.object_id,
+//     o.type,
+//     s.name AS [schema],
+//     o.name,
+//     ISNULL(c.identity_count, 0) AS [identity_count]
+//   FROM
+//     sys.objects o
+//     JOIN sys.schemas s ON o.schema_id = s.schema_id
+//     LEFT JOIN (
+//       SELECT
+//         i.object_id,
+//         count(1) AS [identity_count]
+//       FROM
+//         sys.identity_columns i
+//       GROUP BY
+//         i.object_id
+//     ) c on c.object_id = o.object_id
+//   where
+//     o.type = 'U'
+//     AND o.is_ms_shipped = 0
+//   ORDER BY
+//     s.name,
+//     o.name
+// `;
+
+// /**
+//  * Get SQL column information.
+//  */
+// export const columnsSql = `
+//   SELECT
+//     c.object_id,
+//     c.name,
+//     tp.name AS [datatype],
+//     tp.is_user_defined,
+//     c.max_length,
+//     c.is_computed,
+//     c.precision,
+//     c.scale AS [scale],
+//     c.collation_name,
+//     c.is_nullable,
+//     dc.definition,
+//     ic.is_identity,
+//     ic.seed_value,
+//     ic.increment_value,
+//     cc.definition AS [formula]
+//   FROM
+//     sys.columns c
+//     JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+//     LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
+//     LEFT JOIN sys.default_constraints dc ON
+//       c.default_object_id != 0
+//       AND c.object_id = dc.parent_object_id
+//       AND c.column_id = dc.parent_column_id
+//     LEFT JOIN sys.identity_columns ic ON
+//       c.is_identity = 1
+//       AND c.object_id = ic.object_id
+//       AND c.column_id = ic.column_id
+// `;
 
 /**
  * Get SQL primary key information.

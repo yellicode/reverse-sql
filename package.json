@@ -24,7 +24,8 @@
     "@types/mssql": "^4.0.12",
     "@types/node": "^11.9.4",
     "@yellicode/templating": "^1.2.0",
-    "rollup": "^0.66.6"
+    "rollup": "^0.66.6",
+    "@types/lodash": "^4.14.132"
   },
   "dependencies": {
     "@yellicode/core": "^1.0.1",
@@ -32,6 +33,7 @@
     "@yellicode/dotnet-profile": "^1.0.0",
     "@yellicode/elements": "^1.0.2",
     "@yellicode/sql-server": "^1.0.1",
+    "lodash": "^4.17.11",
     "mssql": "^4.3.2"
   }
 }

@@ -49,8 +49,8 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
 
     public getResultSetClassName(sp: SqlServerStoredProcedure): string {
         const cleanedUpSpName = DefaultReverseSqlObjectNameProvider.cleanup(sp.name);
-        if (this.includeSchemaName && sp.schemaName && sp.schemaName !== 'dbo') {
-            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schemaName);
+        if (this.includeSchemaName && sp.schema && sp.schema !== 'dbo') {
+            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schema);
             return `${cleanedUpSchemaName}_${cleanedUpSpName}Result`;
         }
         else return `${cleanedUpSpName}Result`;
@@ -67,8 +67,8 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
 
     public getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string {
         const cleanedUpSpName = DefaultReverseSqlObjectNameProvider.cleanup(sp.name);
-        if (this.includeSchemaName && sp.schemaName && sp.schemaName !== 'dbo') {
-            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schemaName);
+        if (this.includeSchemaName && sp.schema && sp.schema !== 'dbo') {
+            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schema);
             return `${cleanedUpSchemaName}_${cleanedUpSpName}`;
         }
         else return cleanedUpSpName;

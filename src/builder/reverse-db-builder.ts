@@ -3,9 +3,10 @@ import { BuilderOptions, BuilderObjecTypes } from './builder-options';
 import { SqlServerTable, SqlServerDatabase, QueryType, SqlServerParameter, SqlParameterDirection, SqlResultSetColumn } from '@yellicode/sql-server';
 import { SqlServerStoredProcedure } from '@yellicode/sql-server';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
-import { storedProceduresSql, parametersSql } from './queries/query-statements';
-import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult } from './queries/query-interfaces';
+import { storedProceduresSql, parametersSql, columnsSql, columnConstraintsSql } from './queries/query-statements';
+import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult, ColumnsSqlResult, ColumnConstraintsSqlResult } from './queries/query-interfaces';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { TableBuilder } from './table-builder';
 
 export class ReverseDbBuilder {
     private pool: sql.ConnectionPool;
@@ -95,9 +96,36 @@ export class ReverseDbBuilder {
         if (!this.includeTables)
             return Promise.resolve([]);
 
-        return Promise.resolve([]);
-    }
+        let columnsRecordSet: sql.IRecordSet<ColumnsSqlResult> | null = null;
+        let columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult> | null = null;
+        const recordSetPromises: Promise<void>[] = [];
 
+        // Get column information (this includes table information as well, so no table info without columns)
+        recordSetPromises.push(this.pool.request().query(columnsSql)
+            .then((results: sql.IResult<ColumnsSqlResult>) => {                
+                if (results && results.recordsets.length)
+                    columnsRecordSet = results.recordsets[0];
+                else 
+                    this.logger.warn('Could not find any tables or columns. If this is unexpected, please check the current user permissions.');                
+            }));
+            
+       recordSetPromises.push(this.pool.request().query(columnConstraintsSql)
+            .then((results: sql.IResult<ColumnConstraintsSqlResult>) => {               
+                if (results && results.recordsets.length) 
+                    columnConstraintsRecordSet = results.recordsets[0];
+                else 
+                    this.logger.warn('Could not find any column constraints. If this is unexpected, please check the current user permissions.');
+            }));    
+        
+        return Promise.all(recordSetPromises).then(() => {            
+            if (!columnsRecordSet || !columnConstraintsRecordSet) 
+                return [];
+
+            const tableBuilder: TableBuilder = new TableBuilder(this.options.tableFilter);
+            return tableBuilder.build(columnsRecordSet, columnConstraintsRecordSet);
+        })        
+    }
+    
     private buildStoredProcedures(): Promise<SqlServerStoredProcedure[]> {
         // https://stackoverflow.com/questions/14574773/retrieve-column-names-and-types-of-a-stored-procedure
         // or, see ReadStoredProcReturnObject in https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/master/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude
@@ -106,27 +134,27 @@ export class ReverseDbBuilder {
             return Promise.resolve([]);
 
         // Record sets that neeed to be combined into a single SqlServerStoredProcedure[] result
-        let objectsRecordSet: sql.IRecordSet<StoredProceduresSqlResult> | null;
-        let parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null;
+        let objectsRecordSet: sql.IRecordSet<StoredProceduresSqlResult> | null = null;
+        let parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null = null;
 
         const recordSetPromises: Promise<void>[] = [];
 
         // 1. Get the actual objects 
         recordSetPromises.push(this.pool
             .request().query(storedProceduresSql)
-            .then((results: sql.IResult<StoredProceduresSqlResult>) => {
-                if (!results || !results.recordset.length) {
-                    this.logger.warn('Could not find any stored procedures. If this is unexpected, please check the current user permissions.');
-                    objectsRecordSet = null;
-                }
-                objectsRecordSet = results.recordsets[0];
+            .then((results: sql.IResult<StoredProceduresSqlResult>) => {                
+                if (results && results.recordsets.length)
+                    objectsRecordSet = results.recordsets[0];
+                else 
+                    this.logger.warn('Could not find any stored procedures. If this is unexpected, please check the current user permissions.');                                    
             })           
         );
 
         // 2. Get the parameters
         recordSetPromises.push(this.pool.request().query(parametersSql)
             .then((results: sql.IResult<ParametersSqlResult>) => {
-                parametersRecordSet = results.recordsets[0];
+                if (results && results.recordsets.length)
+                    parametersRecordSet = results.recordsets[0];
             })
         );
        
@@ -134,7 +162,8 @@ export class ReverseDbBuilder {
         // We got all we need, put it all together
         return Promise.all(recordSetPromises).then(() => {
             const storedProcs: SqlServerStoredProcedure[] = [];
-            if (!objectsRecordSet) return storedProcs;
+            if (!objectsRecordSet) 
+                return storedProcs; // bad luck
 
             objectsRecordSet.forEach(o => {
                 if (o.ROUTINE_TYPE !== 'PROCEDURE')
@@ -146,7 +175,7 @@ export class ReverseDbBuilder {
                 const proc: SqlServerStoredProcedure = {
                     queryType: QueryType.Unknown,
                     name: o.SPECIFIC_NAME,
-                    schemaName: o.SPECIFIC_SCHEMA,
+                    schema: o.SPECIFIC_SCHEMA,
                     relatedTable: null,
                     modelType: null, // should be a null, let's genererate C# classes from the output parameters
                     parameters: this.getParametersForStoredProcedure(parametersRecordSet, o),
@@ -171,7 +200,7 @@ export class ReverseDbBuilder {
 
         storedProcs.forEach(sp => {
             
-            const sql = `SELECT column_ordinal, name, TYPE_NAME(system_type_id) type_name, source_table, source_column, is_nullable, is_hidden FROM sys.dm_exec_describe_first_result_set('EXEC [${sp.schemaName}].[${sp.name}]', NULL, 1)`;
+            const sql = `SELECT column_ordinal, name, TYPE_NAME(system_type_id) type_name, source_table, source_column, is_nullable, is_hidden FROM sys.dm_exec_describe_first_result_set('EXEC [${sp.schema}].[${sp.name}]', NULL, 1)`;
             // console.log(`Retrieving result set of ${sp.name}.`);            
             promises.push(this.pool.request().query(sql).then((results: sql.IResult<ResultSetSqlResult>) => {
                 const resultcolumns = results.recordsets[0];
@@ -275,5 +304,5 @@ export class ReverseDbBuilder {
         if (!this.options.storedProcedureFilter) return true;
 
         return this.options.storedProcedureFilter(schema, name);
-    }
+    }    
 }
