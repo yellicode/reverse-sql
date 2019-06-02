@@ -1,5 +1,5 @@
 import { CSharpWriter, ClassDefinition, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
-import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase, SqlServerQuery } from '@yellicode/sql-server';
 import { ReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
@@ -86,80 +86,95 @@ export class DataAccessWriter {
 
     private writeStoredProcedureCalls(storedProcedures: SqlServerStoredProcedure[]): void {
         storedProcedures.forEach(sp => {
-            const hasResultSet = sp.resultSets && sp.resultSets.length;
-            const method: MethodDefinition = { name: this.objectNameProvider.getStoredProcedureMethodName(sp), accessModifier: 'public' };
-            let resultSetClassName: string | null;
-            let returnTypeName: string;
+            this.writeStoredProcedureCall(sp);
+        });
+    }
 
-            // Are there any result sets?        
-            if (hasResultSet) {
-                resultSetClassName = this.objectNameProvider.getResultSetClassName(sp);
-                returnTypeName = `IEnumerable<${resultSetClassName}>`;
-            }
-            else {
-                resultSetClassName = null;
-                returnTypeName = 'void';
-            }
-            method.returnTypeName = returnTypeName;
+    private writeStoredProcedureCall(sp: SqlServerStoredProcedure): void {
+        const methodName = this.objectNameProvider.getStoredProcedureMethodName(sp);     
+        const commandStatement = `"[${sp.schema}].[${sp.name}]"`;
+        const hasResultSet = sp.resultSets && sp.resultSets.length;
+        const resultSetClassName = hasResultSet ? this.objectNameProvider.getResultSetClassName(sp): null;
 
-            const methodParametersBySqlName: Map<string, ParameterDefinition> = new Map<string, ParameterDefinition>();
+        this.writeQueryCall(methodName, resultSetClassName, sp, commandStatement, 'StoredProcedure');
+    }
 
-            const methodParameters: ParameterDefinition[] = [];
-            sp.parameters.forEach(p => {
-                const methodParameter: ParameterDefinition = {
-                    name: this.objectNameProvider.getParameterName(p),
-                    typeName: p.objectTypeName
-                };
-                methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
-                // We don't know if the SP parameter (or the related column) is nullable, so allow every input parameter to be null
-                methodParameter.isNullable = !methodParameter.isOutput && SqlToCSharpTypeMapper.canBeNullable(methodParameter.typeName);
-                methodParameters.push(methodParameter);
-                methodParametersBySqlName.set(p.name, methodParameter);
-            });
+    private writeQueryCall(
+        methodName: string, 
+        resultSetClassName: string | null,
+        q: SqlServerQuery, 
+        commandStatement: string,         
+        commandType: 'StoredProcedure' | 'Text'): void {
 
-            method.parameters = methodParameters;
-            // Write          
-            this.csharp.writeMethodBlock(method, () => {
-                this.csharp.writeLine(`using (var connection = new SqlConnection(${connectionStringFieldName}))`);
-                this.csharp.writeLine(`using (var command = new SqlCommand("[${sp.schema}].[${sp.name}]", connection) { CommandType = CommandType.StoredProcedure })`);
-                this.csharp.writeCodeBlock(() => {
-                    sp.parameters.forEach(p => {
-                        this.writeCommandParameter(p, methodParametersBySqlName);
-                        this.csharp.writeLine();
-                    });
-                    this.csharp.writeLine('// Execute');
-                    this.csharp.writeLine('connection.Open();');
-                    if (hasResultSet) {
-                        this.csharp.writeLine(`var reader = command.ExecuteReader();`);
-                        this.csharp.writeLine('if (reader.HasRows)');
-                        this.csharp.writeCodeBlock(() => {
-                            this.csharp.writeLine('while (reader.Read())');
-                            this.csharp.writeCodeBlock(() => {
-                                this.csharp.writeLine(`yield return ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
-                            });
-                        });
-                        // this.csharp.writeLine('else resultSet = null;');
-                    }
-                    else {
-                        this.csharp.writeLine('command.ExecuteNonQuery();');
-                    }
-                    this.csharp.writeLine('connection.Close();');
-                    // Fill output parameters
-                    sp.parameters.forEach(p => {
-                        if (p.direction !== SqlParameterDirection.InputOutput && p.direction !== SqlParameterDirection.Output) {
-                            return;
-                        }
-                        const methodParameter = methodParametersBySqlName.get(p.name)!;
-                        this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${methodParameter.name}Parameter.Value;`);
-                    })
-                });
-                // if (hasResultSet) {
-                //     this.csharp.writeLine(`return resultSet;`);
-                // }
-            });
-            this.csharp.writeLine();
+        const method: MethodDefinition = { name: methodName, accessModifier: 'public' };
+        let returnTypeName: string;
+
+        // Are there any result sets?        
+        const hasResultSet = q.resultSets && q.resultSets.length;
+        if (hasResultSet) {            
+            returnTypeName = `IEnumerable<${resultSetClassName}>`;
+        }
+        else {            
+            returnTypeName = 'void';
+        }
+        method.returnTypeName = returnTypeName;
+
+        const methodParametersBySqlName: Map<string, ParameterDefinition> = new Map<string, ParameterDefinition>();
+
+        const methodParameters: ParameterDefinition[] = [];
+        q.parameters.forEach(p => {
+            const methodParameter: ParameterDefinition = {
+                name: this.objectNameProvider.getParameterName(p),
+                typeName: p.objectTypeName
+            };
+            methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
+            // We don't know if the SP parameter (or the related column) is nullable, so allow every input parameter to be null
+            methodParameter.isNullable = p.isNullable && SqlToCSharpTypeMapper.canBeNullable(methodParameter.typeName);
+            methodParameters.push(methodParameter);
+            methodParametersBySqlName.set(p.name, methodParameter);
         });
 
+        method.parameters = methodParameters;
+        // Write          
+        this.csharp.writeMethodBlock(method, () => {
+            this.csharp.writeLine(`using (var connection = new SqlConnection(${connectionStringFieldName}))`);
+            this.csharp.writeLine(`using (var command = new SqlCommand(${commandStatement}, connection) { CommandType = CommandType.${commandType} })`);
+            this.csharp.writeCodeBlock(() => {
+                q.parameters.forEach(p => {
+                    this.writeCommandParameter(p, methodParametersBySqlName);
+                    this.csharp.writeLine();
+                });
+                this.csharp.writeLine('// Execute');
+                this.csharp.writeLine('connection.Open();');
+                if (hasResultSet) {
+                    this.csharp.writeLine(`var reader = command.ExecuteReader();`);
+                    this.csharp.writeLine('if (reader.HasRows)');
+                    this.csharp.writeCodeBlock(() => {
+                        this.csharp.writeLine('while (reader.Read())');
+                        this.csharp.writeCodeBlock(() => {
+                            this.csharp.writeLine(`yield return ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
+                        });
+                    });
+                    // this.csharp.writeLine('else resultSet = null;');
+                }
+                else {
+                    this.csharp.writeLine('command.ExecuteNonQuery();');
+                }
+                this.csharp.writeLine('connection.Close();');
+                // Fill output parameters
+                q.parameters.forEach(p => {
+                    if (p.direction !== SqlParameterDirection.InputOutput && p.direction !== SqlParameterDirection.Output) {
+                        return;
+                    }
+                    const methodParameter = methodParametersBySqlName.get(p.name)!;
+                    this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${methodParameter.name}Parameter.Value;`);
+                })
+            });
+            // if (hasResultSet) {
+            //     this.csharp.writeLine(`return resultSet;`);
+            // }
+        });
+        this.csharp.writeLine();
     }
 
     private writeCommandParameter(p: SqlServerParameter, methodParametersBySqlName: Map<string, ParameterDefinition>): void {

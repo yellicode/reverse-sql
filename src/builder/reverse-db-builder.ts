@@ -258,7 +258,7 @@ export class ReverseDbBuilder {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE;
                 const sqlTypeName = p.USER_DEFINED_TYPE || p.DATA_TYPE; // USER_DEFINED_TYPE includes the schema, is this helpful?
                 const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
-                const isNullable = false; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
+                const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
 
                 const parameter: SqlServerParameter = {
                     // SqlParameter
