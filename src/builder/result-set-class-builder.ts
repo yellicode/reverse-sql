@@ -8,7 +8,7 @@ export class ResultSetClassBuilder {
         
     }
 
-    public buildClassDefinitions(storedProcedures: SqlServerStoredProcedure[]): ClassDefinition[] {
+    public buildStoredProcResultSetClasses(storedProcedures: SqlServerStoredProcedure[]): ClassDefinition[] {
         // Build C# class and property definitions    
         const classDefinitions: ClassDefinition[] = [];
         storedProcedures.forEach((sp) => {
