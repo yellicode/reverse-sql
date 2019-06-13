@@ -1,13 +1,18 @@
-import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter, SqlServerQuery, SqlServerTable, NamedObject } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter, SqlServerQuery, SqlServerTable, NamedObject, SqlServerColumn } from '@yellicode/sql-server';
 import { isReservedKeyword } from '@yellicode/csharp';
 import { NameUtility } from '@yellicode/core';
 
 export interface ReverseSqlObjectNameProvider {
-    
+
     /**
      * Returns the name to be generated for the result set of a stored procedure.     
      */
-    getResultSetClassName(sp: SqlServerStoredProcedure): string;
+    getStoredProcedureResultSetClassName(sp: SqlServerStoredProcedure): string;
+
+    /**
+     * Returns the name to be generated for the result set of a table SELECT.
+     */
+    getTableSelectResultSetClassName(table: SqlServerTable): string;
 
     /**
      * Returns the name to be generated for the mapper class that maps
@@ -38,11 +43,17 @@ export interface ReverseSqlObjectNameProvider {
      */
     getTableDeleteMethodName(table: SqlServerTable): string;
 
-     /**
-     * Gets a .NET method name that is generated for updating data in the 
-     * specified table.     
-     */
+    /**
+    * Gets a .NET method name that is generated for updating data in the 
+    * specified table.     
+    */
     getTableUpdateMethodName(table: SqlServerTable): string;
+
+    /**
+     * Gets a .NET method name that is generated for selecting data from the 
+     * specified table by its primary key.     
+     */
+    getTableSelectByPrimaryKeyMethodName(table: SqlServerTable): string;
 
     /**
      * Returns the .NET parameter name to be generated for the 
@@ -53,7 +64,7 @@ export interface ReverseSqlObjectNameProvider {
 }
 
 export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectNameProvider {
-    constructor(protected includeSchemaName: boolean = false) {
+    constructor(protected includeSchema: boolean = false) {
 
     }
 
@@ -66,13 +77,22 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         return result;
     }
 
-    public getResultSetClassName(sp: SqlServerStoredProcedure): string {
+    public getStoredProcedureResultSetClassName(sp: SqlServerStoredProcedure): string {
         const cleanedUpSpName = DefaultReverseSqlObjectNameProvider.cleanup(sp.name);
-        if (this.includeSchemaName && sp.schema && sp.schema !== 'dbo') {
+        if (this.includeSchema && sp.schema && sp.schema !== 'dbo') {
             const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schema);
             return `${cleanedUpSchemaName}_${cleanedUpSpName}Result`;
         }
         else return `${cleanedUpSpName}Result`;
+    }
+
+    public getTableSelectResultSetClassName(table: SqlServerTable): string {
+        const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(table.name);
+        if (this.includeSchema && table.schema && table.schema !== 'dbo') {
+            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(table.schema);
+            return `Select${cleanedUpSchemaName}_${cleanedUpTableName}Result`;
+        }
+        else return `Select${cleanedUpTableName}Result`;
     }
 
     public getResultSetMapperClassName(resultSetClassName: string): string {
@@ -83,6 +103,11 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         if (!col.name) return `Column${col.ordinal}`;
         return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
     }
+    
+    // public getTableColumnProperyName(col: SqlServerColumn): string {
+    //     if (!col.name) return `Column${col.ordinal}`;
+    //     return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
+    // }
 
     public getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string {
         return this.getCleanObjectNameWithSchema(sp);
@@ -103,10 +128,15 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Update${NameUtility.capitalize(table.name)}` });
     }
 
+    public getTableSelectByPrimaryKeyMethodName(table: SqlServerTable): string {
+        // Format: "dbo_SelectMyType"
+        return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Select${NameUtility.capitalize(table.name)}` });
+    }
+
     protected getCleanObjectNameWithSchema(object: { schema?: string, name: string }): string {
         let result: string;
         const cleanedUpName = DefaultReverseSqlObjectNameProvider.cleanup(object.name);
-        if (this.includeSchemaName && object.schema && object.schema !== 'dbo') {
+        if (this.includeSchema && object.schema && object.schema !== 'dbo') {
             const cleanedUpSchema = NameUtility.capitalize(DefaultReverseSqlObjectNameProvider.cleanup(object.schema));
             result = `${cleanedUpSchema}_${cleanedUpName}`;
         }
@@ -114,13 +144,13 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         return result;
     }
 
-    public getParameterName(parameter: SqlParameter): string {        
+    public getParameterName(parameter: SqlParameter): string {
         let name = parameter.name.startsWith('@') ? parameter.name.slice(1) : parameter.name;
-        name = DefaultReverseSqlObjectNameProvider.cleanup(name);        
+        name = DefaultReverseSqlObjectNameProvider.cleanup(name);
         name = NameUtility.upperToLowerCamelCase(name);
-        if (isReservedKeyword(name)){
+        if (isReservedKeyword(name)) {
             name = `@${name}`;
         }
         return name;
-    }   
+    }
 }

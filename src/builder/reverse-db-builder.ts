@@ -64,7 +64,7 @@ export class ReverseDbBuilder {
 
     private buildInternal(): Promise<SqlServerDatabase> {
         let tables: SqlServerTable[];
-        let tableTypes: SqlServerTable[];
+        // let tableTypes: SqlServerTable[];
         let storedProcedures: SqlServerStoredProcedure[];
 
         const promises: Promise<void>[] = [];
@@ -75,7 +75,7 @@ export class ReverseDbBuilder {
         }));
 
         // 2: Table types
-        tableTypes = [];
+        // tableTypes = [];
 
         // 3: Stored procedures
         promises.push(this.buildStoredProcedures().then(sp => {
@@ -83,10 +83,13 @@ export class ReverseDbBuilder {
         }));
 
         return Promise.all(promises).then(() => {
-            this.logger.info(`Successfully created database model with ${tables.length} tables, ${tableTypes.length} table types and ${storedProcedures.length} stored procedures.`);
+            if (!tables.length && !storedProcedures.length) {
+                this.logger.warn(`Could not find any tables or stored procedures in the database. Please make sure that you have a working connection with the approriate permissions.`);
+            }
+            else this.logger.info(`Successfully created database model with ${tables.length} tables and ${storedProcedures.length} stored procedures.`);
             const db: SqlServerDatabase = {
                 tables: tables,
-                tableTypes: tableTypes,
+                tableTypes: [], // todo: we need this when they are used by stored procedures
                 storedProcedures: storedProcedures
             }
             return db;

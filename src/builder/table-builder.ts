@@ -52,7 +52,7 @@ export class TableBuilder {
 
         return tables;
     }
-
+    
     private static createSqlServerColumn(table: Table, record: ColumnsSqlResult, tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerColumn {
 
         const isPrimaryKey =
@@ -86,7 +86,7 @@ export class TableBuilder {
             isNavigableInModel: false
         }
     }
-
+    
     private static createSqlServerConstraints(tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerConstraint[] {
 
         const result: SqlServerConstraint[] = [];

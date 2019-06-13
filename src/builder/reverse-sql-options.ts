@@ -49,6 +49,12 @@ export interface ReverseSqlOptions {
     tableUpdateMethodFilter?: (schema: string, name: string) => boolean;
 
     /**
+     * When provided, returns a boolan value indicating whether a SELECT method must be generated for the
+     * specified table, selecting a record by its primary key.
+     */
+    tableSelectByPrimaryKeyMethodFilter?: (schema: string, name: string) => boolean;
+
+    /**
      * Sets an optional logger.
      */
     logger?: Logger;
