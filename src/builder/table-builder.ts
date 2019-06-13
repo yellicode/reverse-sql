@@ -9,7 +9,7 @@ export class TableBuilder {
     }
 
     public build(
-        columnsRecordSet: sql.IRecordSet<ColumnsSqlResult>, 
+        columnsRecordSet: sql.IRecordSet<ColumnsSqlResult>,
         columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult>): SqlServerTable[] {
         const tables: SqlServerTable[] = [];
 
@@ -23,14 +23,14 @@ export class TableBuilder {
                 const columnRecords = columnRecordsByTableName[tableFullName];
                 if (!columnRecords.length)
                     return; // should never be the case as long as we select columns and join them with table info
-                    
+
                 const firstRecord = columnRecords[0];
                 const tableSchema = firstRecord.TABLE_SCHEMA;
                 const tableName = firstRecord.TABLE_NAME;
                 if (!this.shouldIncludedTable(tableSchema, tableName)) {
                     return;
                 }
-                
+
                 const constraintRecords: ColumnConstraintsSqlResult[] | null = columnConstraintsByTableName[tableFullName];
                 const dependentColumns: SqlServerColumn[] = []; // TODO?                
                 const ownColumns: SqlServerColumn[] = [];
@@ -44,36 +44,29 @@ export class TableBuilder {
                     dependentColumns: dependentColumns,
                     objectType: null
                 }
-                columnRecords.forEach(record => {                    
+                columnRecords.forEach(record => {
                     ownColumns.push(TableBuilder.createSqlServerColumn(table, record, constraintRecords));
                 });
                 tables.push(table);
-            })
+            });
 
-        tables.forEach((t) => {
-            // console.log(`Table ${t.schemaName}.${t.name}:`);
-            t.ownColumns.forEach(c => {
-                // console.log(JSON.stringify(c));
-            })
-            console.log();
-        })
         return tables;
     }
 
-    private static createSqlServerColumn(table: Table, record: ColumnsSqlResult, tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerColumn {               
+    private static createSqlServerColumn(table: Table, record: ColumnsSqlResult, tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerColumn {
 
-        const isPrimaryKey = 
-                !!tableConstraints && 
-                tableConstraints.findIndex(c => c.COLUMN_NAME === record.SPECIFIC_NAME && c.CONSTRAINT_TYPE === 'PRIMARY KEY') > -1;
+        const isPrimaryKey =
+            !!tableConstraints &&
+            tableConstraints.findIndex(c => c.COLUMN_NAME === record.SPECIFIC_NAME && c.CONSTRAINT_TYPE === 'PRIMARY KEY') > -1;
 
-        const isForeignKey = 
-                !!tableConstraints && 
-                tableConstraints.findIndex(c => c.COLUMN_NAME === record.SPECIFIC_NAME && c.CONSTRAINT_TYPE === 'FOREIGN KEY') > -1;                 
+        const isForeignKey =
+            !!tableConstraints &&
+            tableConstraints.findIndex(c => c.COLUMN_NAME === record.SPECIFIC_NAME && c.CONSTRAINT_TYPE === 'FOREIGN KEY') > -1;
 
         const isReadOnly =
-            record.IS_IDENTITY || 
-            record.IS_ROWGUID_COL || 
-            record.IS_COMPUTED || 
+            record.IS_IDENTITY ||
+            record.IS_ROWGUID_COL ||
+            record.IS_COMPUTED ||
             record.DATA_TYPE === 'rowversion' || record.DATA_TYPE === 'timestamp' ||
             (record.DATA_TYPE === 'uniqueidentifier' && !!record.COLUMN_DEFAULT && record.COLUMN_DEFAULT.indexOf('newsequentialid') > -1);
 
@@ -88,30 +81,31 @@ export class TableBuilder {
             isPrimaryKey: isPrimaryKey,
             isForeignKey: isForeignKey,
             isReadOnly: isReadOnly,
+            hasDefaultValue: !!record.COLUMN_DEFAULT,
             table: table,
             isNavigableInModel: false
         }
     }
 
     private static createSqlServerConstraints(tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerConstraint[] {
-        
+
         const result: SqlServerConstraint[] = [];
-        if (!tableConstraints) 
+        if (!tableConstraints)
             return result;
 
         tableConstraints.forEach(record => {
-            let constraintType: ConstraintType; 
+            let constraintType: ConstraintType;
 
             if (record.CONSTRAINT_TYPE === 'PRIMARY KEY')
                 constraintType = ConstraintType.PrimaryKey;
             else if (record.CONSTRAINT_TYPE === 'FOREIGN KEY')
                 constraintType = ConstraintType.ForeignKey;
-            else 
+            else
                 return; // unsupported constraint
 
             const constraint: SqlServerConstraint = {
-                constraintType: constraintType,                
-                name: record.CONSTRAINT_NAME,                
+                constraintType: constraintType,
+                name: record.CONSTRAINT_NAME,
                 columnName: record.COLUMN_NAME,
                 cascadeOnDelete: false, // if you need this, add INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS.DELETE_RULE to the record
                 primaryKeyTableSchema: null,
@@ -126,7 +120,7 @@ export class TableBuilder {
             result.push(constraint);
         });
 
-        return result;        
+        return result;
     }
 
     private shouldIncludedTable(schema: string, name: string): boolean {

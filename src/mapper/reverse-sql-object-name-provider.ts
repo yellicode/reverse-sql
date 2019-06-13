@@ -1,6 +1,6 @@
-import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter, SqlServerQuery, SqlServerTable, NamedObject } from '@yellicode/sql-server';
 import { isReservedKeyword } from '@yellicode/csharp';
-import { NameUtility } from '@yellicode/templating';
+import { NameUtility } from '@yellicode/core';
 
 export interface ReverseSqlObjectNameProvider {
     
@@ -27,10 +27,29 @@ export interface ReverseSqlObjectNameProvider {
     getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string;
 
     /**
+     * Gets a .NET method name that is generated for inserting data into the 
+     * specified table.     
+     */
+    getTableInsertMethodName(table: SqlServerTable): string;
+
+    /**
+     * Gets a .NET method name that is generated for deleting data from the 
+     * specified table.     
+     */
+    getTableDeleteMethodName(table: SqlServerTable): string;
+
+     /**
+     * Gets a .NET method name that is generated for updating data in the 
+     * specified table.     
+     */
+    getTableUpdateMethodName(table: SqlServerTable): string;
+
+    /**
      * Returns the .NET parameter name to be generated for the 
      * specified SQL parameter.     
      */
     getParameterName(parameter: SqlParameter): string;
+
 }
 
 export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectNameProvider {
@@ -66,12 +85,33 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
     }
 
     public getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string {
-        const cleanedUpSpName = DefaultReverseSqlObjectNameProvider.cleanup(sp.name);
-        if (this.includeSchemaName && sp.schema && sp.schema !== 'dbo') {
-            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(sp.schema);
-            return `${cleanedUpSchemaName}_${cleanedUpSpName}`;
+        return this.getCleanObjectNameWithSchema(sp);
+    }
+
+    public getTableInsertMethodName(table: SqlServerTable): string {
+        // Format: "dbo_InsertMyType"
+        return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Insert${NameUtility.capitalize(table.name)}` });
+    }
+
+    public getTableDeleteMethodName(table: SqlServerTable): string {
+        // Format: "dbo_DeleteMyType"
+        return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Delete${NameUtility.capitalize(table.name)}` });
+    }
+
+    public getTableUpdateMethodName(table: SqlServerTable): string {
+        // Format: "dbo_UpdateMyType"
+        return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Update${NameUtility.capitalize(table.name)}` });
+    }
+
+    protected getCleanObjectNameWithSchema(object: { schema?: string, name: string }): string {
+        let result: string;
+        const cleanedUpName = DefaultReverseSqlObjectNameProvider.cleanup(object.name);
+        if (this.includeSchemaName && object.schema && object.schema !== 'dbo') {
+            const cleanedUpSchema = NameUtility.capitalize(DefaultReverseSqlObjectNameProvider.cleanup(object.schema));
+            result = `${cleanedUpSchema}_${cleanedUpName}`;
         }
-        else return cleanedUpSpName;
+        else result = cleanedUpName;
+        return result;
     }
 
     public getParameterName(parameter: SqlParameter): string {        

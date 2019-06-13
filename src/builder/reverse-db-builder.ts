@@ -1,5 +1,5 @@
 import * as sql from 'mssql';
-import { BuilderOptions, BuilderObjecTypes } from './builder-options';
+import { ReverseSqlOptions, BuilderObjecTypes } from './reverse-sql-options';
 import { SqlServerTable, SqlServerDatabase, QueryType, SqlServerParameter, SqlParameterDirection, SqlResultSetColumn } from '@yellicode/sql-server';
 import { SqlServerStoredProcedure } from '@yellicode/sql-server';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
@@ -10,20 +10,21 @@ import { TableBuilder } from './table-builder';
 
 export class ReverseDbBuilder {
     private pool: sql.ConnectionPool;
-    private options: BuilderOptions;
+    private options: ReverseSqlOptions;
     private includeTables: boolean;
     private includeTableTypes: boolean;
     private includeStoredProcedures: boolean;
     private logger: Logger;
 
-    constructor(connectionString: string, options?: BuilderOptions);
-    constructor(connectionPool: sql.ConnectionPool, options?: BuilderOptions);
-    constructor(poolOrConnectionString: any, options?: BuilderOptions) {
+    constructor(connectionString: string, options?: ReverseSqlOptions);
+    constructor(connectionPool: sql.ConnectionPool, options?: ReverseSqlOptions);
+    constructor(poolOrConnectionString: any, options?: ReverseSqlOptions) {
         this.options = options || {};
-        this.logger = new ConsoleLogger(console, LogLevel.Verbose);
 
+        this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);
         if (!poolOrConnectionString)
             throw 'Cannot create SqlServerDbBuilder instance. Please provide a connection pool or connection string in the constructor';
+            
         if (typeof poolOrConnectionString == 'string') {
             this.pool = new sql.ConnectionPool(poolOrConnectionString);
         }
@@ -254,7 +255,7 @@ export class ReverseDbBuilder {
 
         parametersRecordSet
             .filter(p => p.SPECIFIC_NAME === storedProcedure.SPECIFIC_NAME && p.SPECIFIC_SCHEMA === storedProcedure.SPECIFIC_SCHEMA)
-            .forEach(p => {
+            .forEach((p, index) => {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE;
                 const sqlTypeName = p.USER_DEFINED_TYPE || p.DATA_TYPE; // USER_DEFINED_TYPE includes the schema, is this helpful?
                 const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
@@ -262,7 +263,8 @@ export class ReverseDbBuilder {
 
                 const parameter: SqlServerParameter = {
                     // SqlParameter
-                    name: p.PARAMETER_NAME, // includes @                    
+                    name: p.PARAMETER_NAME, // includes @
+                    index: index,
                     isFilter: false,
                     isIdentity: false,
                     objectProperty: null,
