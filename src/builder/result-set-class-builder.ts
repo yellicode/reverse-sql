@@ -16,14 +16,17 @@ export class ResultSetClassBuilder {
 
     public buildStoredProcResultSetClasses(storedProcedures: SqlServerStoredProcedure[]): ClassDefinition[] {
         // Build C# class and property definitions    
-        const classDefinitions: ClassDefinition[] = [];
+        const classDefinitions: ClassDefinitionWithResultSet[] = [];
         storedProcedures.forEach((sp) => {
             // We only support one result set (using _describe_first_result_set)
             if (!sp.resultSets || !sp.resultSets.length)
                 return;
+            const resultSet = sp.resultSets[0];
 
-            const classDefinition: ClassDefinition = { name: this.objectNameProvider.getStoredProcedureResultSetClassName(sp), accessModifier: 'public', properties: [] };
-            sp.resultSets[0].columns.forEach((col) => {
+            const classDefinition: ClassDefinitionWithResultSet = { 
+                _resultSet: resultSet, name: this.objectNameProvider.getStoredProcedureResultSetClassName(sp), accessModifier: 'public', properties: [] 
+            };
+            resultSet.columns.forEach((col) => {
                 const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(col);
 
                 const property: PropertyDefinition = { name: propertyName, typeName: col.objectTypeName, accessModifier: 'public' };
@@ -37,7 +40,7 @@ export class ResultSetClassBuilder {
         return classDefinitions;
     }
 
-    public buildTableResultSetClasses(tables: SqlServerTable[]): ClassDefinition[] {
+    public buildTableSelectResultSetClasses(tables: SqlServerTable[]): ClassDefinition[] {
          // Build C# class and property definitions    
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         tables.forEach((table) => {

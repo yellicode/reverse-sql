@@ -226,31 +226,37 @@ export class DataAccessWriter {
 
     // #region stored procedure data access
 
-    public writeTableSelectResultSetMappers(resultSetClasses: ClassDefinition[]): void {
+  
+    // public writeStoredProcResultSetMappers(storedProcedures: SqlServerStoredProcedure[], resultSetClasses: ClassDefinition[]): void {
+    //     storedProcedures.forEach(sp => {
+    //         if (!sp.resultSets || !sp.resultSets.length) return;
+
+    //         const resultSet = sp.resultSets[0];
+
+    //         // Find the corresponding result set class
+    //         // TODO: use ClassDefinitionWithResultSet
+    //         const resultSetClassName = this.objectNameProvider.getStoredProcedureResultSetClassName(sp);
+    //         const resultSetCassDefinition = resultSetClasses.find(cd => cd.name === resultSetClassName);
+    //         if (!resultSetCassDefinition) {                
+    //             this.logger.warn(`Unable to find result set class definition named '${resultSetClassName}'.`);
+    //             return;
+    //         }
+    //         this.writeResultSetClassDefinition(resultSetCassDefinition, resultSet);
+    //     })
+    // }
+
+    public writeResultSetMappers(resultSetClasses: ClassDefinition[]): void {
         resultSetClasses.forEach(cd => {            
-            this.writeResultSetClassDefinition(cd, (cd as ClassDefinitionWithResultSet)._resultSet);
+            this.writeResultSetMapper(cd, (cd as ClassDefinitionWithResultSet)._resultSet);
         })
     }
 
-    public writeStoredProcResultSetMappers(storedProcedures: SqlServerStoredProcedure[], resultSetClasses: ClassDefinition[]): void {
-        storedProcedures.forEach(sp => {
-            if (!sp.resultSets || !sp.resultSets.length) return;
+    private writeResultSetMapper(classDefinition: ClassDefinition, resultSet: SqlResultSet): void {
+        if (!resultSet) {
+            this.logger.verbose(`ClassDefinition '${classDefinition.name}' does not have a related result set.`);
+            return; // not a ClassDefinitionWithResultSet?
+        }
 
-            const resultSet = sp.resultSets[0];
-
-            // Find the corresponding result set class
-            // TODO: use ClassDefinitionWithResultSet
-            const resultSetClassName = this.objectNameProvider.getStoredProcedureResultSetClassName(sp);
-            const resultSetCassDefinition = resultSetClasses.find(cd => cd.name === resultSetClassName);
-            if (!resultSetCassDefinition) {                
-                this.logger.warn(`Unable to find result set class definition named '${resultSetClassName}'.`);
-                return;
-            }
-            this.writeResultSetClassDefinition(resultSetCassDefinition, resultSet);
-        })
-    }
-
-    private writeResultSetClassDefinition(classDefinition: ClassDefinition, resultSet: SqlResultSet): void {
         const mapperClassDefinition: ClassDefinition = {
             name: this.objectNameProvider.getResultSetMapperClassName(classDefinition.name),
             accessModifier: 'internal',
