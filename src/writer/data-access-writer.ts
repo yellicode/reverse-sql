@@ -193,7 +193,7 @@ export class DataAccessWriter {
             return;
         }
         
-        const resultSet: SqlResultSet = { columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
+        const resultSet: SqlResultSet = { hasSingleRecord: true, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
         const query: SqlServerQuery = { queryType: QueryType.Update, parameters: whereParameters, relatedTable: table, modelType: null, resultSets: [resultSet] };
         
         const methodName = this.objectNameProvider.getTableSelectByPrimaryKeyMethodName(table);
@@ -313,10 +313,13 @@ export class DataAccessWriter {
 
         const method: MethodDefinition = { name: methodName, accessModifier: 'public' };
         
-        // Are there any result sets?        
+        // Are there any result sets?
         const hasResultSet = q.resultSets && q.resultSets.length;
+        const hasSingleRecordResultSet = hasResultSet && q.resultSets![0].hasSingleRecord;
         if (hasResultSet) {            
-            method.returnTypeName = `IEnumerable<${resultSetClassName}>`;
+            // Note: we do't support multiple result sets at this moment! If we would, the resultSetClassName would still be used,
+            // probably with nested IEnumerable<ResultSet1Class>.. IEnumerable<ResultSet2Class> classes.                
+            method.returnTypeName = hasSingleRecordResultSet ? resultSetClassName! : `IEnumerable<${resultSetClassName}>`;
         }
         else {                        
             // Note: identities are returned as output parameter
@@ -356,19 +359,21 @@ export class DataAccessWriter {
                 this.csharp.writeLine('connection.Open();');
                 if (hasResultSet) {
                     this.csharp.writeLine(`var reader = command.ExecuteReader();`);
-                    this.csharp.writeLine('if (reader.HasRows)');
-                    this.csharp.writeCodeBlock(() => {
+                    if (hasSingleRecordResultSet) {                        
+                        this.csharp.writeLine('if (!reader.Read()) return null;');
+                        this.csharp.writeLine(`var record = ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
+                    }
+                    else {
                         this.csharp.writeLine('while (reader.Read())');
                         this.csharp.writeCodeBlock(() => {
                             this.csharp.writeLine(`yield return ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
                         });
-                    });
-                    // this.csharp.writeLine('else resultSet = null;');
+                    }
                 }
                 else {
                     this.csharp.writeLine('command.ExecuteNonQuery();');
                 }
-                this.csharp.writeLine('connection.Close();');
+                this.csharp.writeLine('connection.Close();');                
                 // Fill output parameters
                 q.parameters.forEach(p => {
                     if (p.direction !== SqlParameterDirection.InputOutput && p.direction !== SqlParameterDirection.Output) {
@@ -377,10 +382,10 @@ export class DataAccessWriter {
                     const methodParameter = methodParametersBySqlName.get(p.name)!;
                     this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${methodParameter.name}Parameter.Value;`);
                 })
-            });
-            // if (hasResultSet) {
-            //     this.csharp.writeLine(`return resultSet;`);
-            // }
+                if (hasSingleRecordResultSet) {
+                    this.csharp.writeLine('return record;');
+                }
+            });           
         });        
     }
 
