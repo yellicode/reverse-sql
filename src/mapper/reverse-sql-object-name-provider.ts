@@ -1,35 +1,17 @@
-import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter, SqlServerQuery, SqlServerTable, NamedObject, SqlServerColumn } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlResultSetColumn, SqlParameter, SqlServerQuery, SqlServerTable, NamedObject, SqlServerColumn, Column } from '@yellicode/sql-server';
 import { isReservedKeyword } from '@yellicode/csharp';
 import { NameUtility } from '@yellicode/core';
 
 export interface ReverseSqlObjectNameProvider {
-
     /**
-     * Returns the name to be generated for the result set of a stored procedure.     
-     */
-    getStoredProcedureResultSetClassName(sp: SqlServerStoredProcedure): string;
-
-    /**
-     * Returns the name to be generated for the result set of a table SELECT.
-     */
-    getTableSelectResultSetClassName(table: SqlServerTable): string;
-
-    /**
-     * Returns the name to be generated for the mapper class that maps
-     * data records to result set classes.     
-     */
-    getResultSetMapperClassName(resultSetClassName: string): string;
-
-    /**
-    * Returns the property name to be generated for a column in a result set.     
+    * Returns the name to be generated for the specified table.
     */
-    getResultSetColumnPropertyName(col: SqlResultSetColumn): string;
+    getTableClassName(table: SqlServerTable): string;
 
     /**
-     * Returns the method name to be generate for the method call to the 
-     * specified stored procedure.     
-     */
-    getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string;
+    * Returns the property name to be generated for a column in a table.     
+    */
+    getTableColumnPropertyname(col: Column): string
 
     /**
      * Gets a .NET method name that is generated for inserting data into the 
@@ -54,6 +36,30 @@ export interface ReverseSqlObjectNameProvider {
      * specified table by its primary key.     
      */
     getTableSelectByPrimaryKeyMethodName(table: SqlServerTable): string;
+    
+    /**
+    * Returns the method name to be generate for the method call to the 
+    * specified stored procedure.     
+    */
+    getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string;
+
+    /**
+     * Returns the name to be generated for the result set of a stored procedure.     
+     */
+    getStoredProcedureResultSetClassName(sp: SqlServerStoredProcedure): string;
+
+    /**
+     * Returns the name to be generated for the mapper class that maps
+     * data records to result set classes.     
+     */
+    getResultSetMapperClassName(resultSetClassName: string): string;
+
+    /**
+    * Returns the property name to be generated for a column in a result set.     
+    */
+    getResultSetColumnPropertyName(col: SqlResultSetColumn): string;
+
+
 
     /**
      * Returns the .NET parameter name to be generated for the 
@@ -86,28 +92,28 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         else return `${cleanedUpSpName}Result`;
     }
 
-    public getTableSelectResultSetClassName(table: SqlServerTable): string {
+    public getTableClassName(table: SqlServerTable): string {
         const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(table.name);
         if (this.includeSchema && table.schema && table.schema !== 'dbo') {
             const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(table.schema);
-            return `Select${cleanedUpSchemaName}_${cleanedUpTableName}Result`;
+            return `${cleanedUpSchemaName}_${cleanedUpTableName}`;
         }
-        else return `Select${cleanedUpTableName}Result`;
+        else return `${cleanedUpTableName}`;
     }
 
     public getResultSetMapperClassName(resultSetClassName: string): string {
         return `${resultSetClassName}Mapper`;
     }
 
+    public getTableColumnPropertyname(col: Column): string {
+        return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
+    }
+
     public getResultSetColumnPropertyName(col: SqlResultSetColumn): string {
         if (!col.name) return `Column${col.ordinal}`;
         return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
     }
-    
-    // public getTableColumnProperyName(col: SqlServerColumn): string {
-    //     if (!col.name) return `Column${col.ordinal}`;
-    //     return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
-    // }
+
 
     public getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string {
         return this.getCleanObjectNameWithSchema(sp);

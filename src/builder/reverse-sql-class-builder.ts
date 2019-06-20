@@ -6,7 +6,10 @@ import { ReverseSqlOptions } from './reverse-sql-options';
 import { TableResultSetBuilder } from './table-result-set-builder';
 import { ClassDefinitionWithResultSet } from './class-definition-with-result-set';
 
-export class ResultSetClassBuilder {
+/**
+ * Builds C# class definitions for objects in a database.
+ */
+export class ReverseSqlClassBuilder {
     private objectNameProvider: ReverseSqlObjectNameProvider;
 
     constructor(options?: ReverseSqlOptions) {
@@ -40,7 +43,7 @@ export class ResultSetClassBuilder {
         return classDefinitions;
     }
 
-    public buildTableSelectResultSetClasses(tables: SqlServerTable[]): ClassDefinition[] {
+    public buildTableClasses(tables: SqlServerTable[]): ClassDefinition[] {
          // Build C# class and property definitions    
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         tables.forEach((table) => {
@@ -48,22 +51,22 @@ export class ResultSetClassBuilder {
             const classProperties: PropertyDefinition[] = [];
 
             table.ownColumns.forEach((tc, index) => {
-                const col = TableResultSetBuilder.buildResultSetColumn(tc, index)
-                const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(col);                
+                const propertyName = this.objectNameProvider.getTableColumnPropertyname(tc);
+                // Also build a SqlResultSetColumn with mapping information
+                const col = TableResultSetBuilder.buildResultSetColumn(tc, index);
                 const property: PropertyDefinition = {
                     name: propertyName,
                     typeName: col.objectTypeName,
                     accessModifier: 'public'
                 };
                 property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.objectTypeName);
-
                 resultSetColumns.push(col);
                 classProperties.push(property);
             });
             
             const classDefinition: ClassDefinitionWithResultSet =             { 
                 _resultSet: {columns: resultSetColumns},
-                name: this.objectNameProvider.getTableSelectResultSetClassName(table), 
+                name: this.objectNameProvider.getTableClassName(table), 
                 accessModifier: 'public', 
                 properties: classProperties };
 
