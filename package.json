@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@yellicode/core": "^1.1.1",
-    "@yellicode/csharp": "^1.6.0",
+    "@yellicode/csharp": "^1.7.0",
     "@yellicode/dotnet-profile": "^1.0.0",
     "@yellicode/elements": "^1.0.2",
     "@yellicode/sql-server": "^1.0.1",

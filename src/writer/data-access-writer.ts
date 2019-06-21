@@ -1,5 +1,5 @@
 import { CSharpWriter, ClassDefinition, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
-import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase, SqlServerQuery, SqlServerTable, SqlServerColumn, QueryType, SqlResultSet, SqlResultSetColumn } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase, SqlServerQuery, SqlServerTable, SqlServerColumn, QueryType, SqlResultSet } from '@yellicode/sql-server';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
@@ -8,6 +8,7 @@ import { Logger, ConsoleLogger, LogLevel, NameUtility } from '@yellicode/core';
 import { TableResultSetBuilder } from '../builder/table-result-set-builder';
 import { ClassDefinitionWithResultSet } from '../builder/class-definition-with-result-set';
 import { SqlParameterWithColumn } from '../builder/sql-parameter-with-column';
+import { WhereBuilderWriter } from './where-builder.writer';
 
 const connectionStringFieldName = '_dbConnectionString';
 
@@ -63,6 +64,10 @@ export class DataAccessWriter {
                 this.csharp.writeLine('#endregion Table data access calls');
             }
 
+            // Write the WhereBuilder class
+            this.csharp.writeLine('#region Infrastructure');
+            WhereBuilderWriter.write(this.csharp);
+            this.csharp.writeLine('#endregion Infrastructure');
         });
     }
 
@@ -265,7 +270,7 @@ export class DataAccessWriter {
             csharp.write(`var ${commandTextVariable} = @"SELECT ${resultSet.columns.map(c => c.name).join(', ')}`);
             csharp.writeEndOfLine();
             csharp.increaseIndent();
-            csharp.writeLine(`FROM ${table.schema}.${table.name}`);
+            csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
             csharp.writeIndent();
             csharp.write('WHERE ');
             csharp.write(whereParameters.map(p => `${p.columnName} = ${DataAccessWriter.minifyParameterName(p)}";`).join(' AND '));
@@ -290,6 +295,7 @@ export class DataAccessWriter {
     public writeResultSetMappers(resultSetClasses: ClassDefinition[]): void {
         resultSetClasses.forEach(cd => {
             this.writeResultSetMapper(cd, (cd as ClassDefinitionWithResultSet)._resultSet);
+            this.csharp.writeLine();
         })
     }
 
@@ -307,8 +313,7 @@ export class DataAccessWriter {
 
         this.csharp.writeClassBlock(mapperClassDefinition, () => {
             const dataRecordParameter: ParameterDefinition = { name: 'dataRecord', typeName: 'IDataRecord' };
-            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: true, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };
-            this.csharp.writeLine();
+            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: true, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };            
             this.csharp.writeMethodBlock(mapDataRecordMethod, () => {
                 this.csharp.writeLine(`if (${dataRecordParameter.name} == null) return null;`);
                 this.csharp.writeLine(`var result = new ${classDefinition.name}();`);
