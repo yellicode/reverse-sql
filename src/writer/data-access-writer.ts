@@ -65,6 +65,7 @@ export class DataAccessWriter {
             }
 
             // Write the WhereBuilder class
+            this.csharp.writeLine();
             this.csharp.writeLine('#region Infrastructure');
             WhereBuilderWriter.write(this.csharp);
             this.csharp.writeLine('#endregion Infrastructure');
@@ -94,9 +95,14 @@ export class DataAccessWriter {
                     this.writeTableUpdateMethods(t);
                     this.csharp.writeLine();
                 }
-                // Get (by PK)
+                // Select (by PK)
                 if (!this.options.tableSelectByPrimaryKeyMethodFilter || this.options.tableSelectByPrimaryKeyMethodFilter(t.schema!, t.name)) {
                     this.writeTableSelectByPrimaryKeyMethod(t);
+                    this.csharp.writeLine();
+                }
+                // SelectWhere
+                if (!this.options.tableSelectByExpressionMethodFilter || this.options.tableSelectByExpressionMethodFilter(t.schema!, t.name)) {
+                    this.writeTableSelectByExpressionMethod(t);
                     this.csharp.writeLine();
                 }
             }
@@ -135,6 +141,7 @@ export class DataAccessWriter {
 
         const idParameter = parameters.find(c => c.isIdentity);
         const methodName = this.objectNameProvider.getTableInsertMethodName(table);
+        const columns = table.ownColumns;
 
         // Write an overload that acceps individual parameters
         const query: SqlServerQuery = { queryType: QueryType.Insert, parameters: parameters, relatedTable: table, modelType: null };
@@ -159,7 +166,6 @@ export class DataAccessWriter {
 
         this.csharp.writeLine();
         this.csharp.writeMethodBlock(methodDefinition, () => {
-
             if (idParameter) {
                 this.csharp.writeLine(`${idParameter.objectTypeName} id;`);
             }
@@ -169,7 +175,7 @@ export class DataAccessWriter {
             this.csharp.write(parameters
                 .filter(p => p !== idParameter)
                 .map(p => {
-                    return `${tableParameterName}.${this.objectNameProvider.getTableColumnPropertyname(p._column)}`;
+                    return `${tableParameterName}.${this.objectNameProvider.getColumnPropertyName({ name: p._column.name, ordinal: columns.indexOf(p._column) })}`;
                 })
                 .join(', '));
 
@@ -181,7 +187,7 @@ export class DataAccessWriter {
 
             if (idParameter) {
                 // Now assign the id parameter to the property that matches the id column
-                const idPropertyName = this.objectNameProvider.getTableColumnPropertyname(idParameter._column);
+                const idPropertyName = this.objectNameProvider.getColumnPropertyName({ name: idParameter._column.name, ordinal: columns.indexOf(idParameter._column) });
                 this.csharp.writeLine(`${tableParameterName}.${idPropertyName} = id;`);
             }
         });
@@ -241,8 +247,8 @@ export class DataAccessWriter {
             this.csharp.write(`${methodName}(`);
             // Pass input parameters, mapped from the table class instance
             this.csharp.write(allParameters               
-                .map(p => {
-                    return `${tableParameterName}.${this.objectNameProvider.getTableColumnPropertyname(p._column)}`;
+                .map((p, i) => {
+                    return `${tableParameterName}.${this.objectNameProvider.getColumnPropertyName({name: p._column.name, ordinal: i})}`;
                 })
                 .join(', '));
             this.csharp.writeEndOfLine(');');
@@ -260,7 +266,7 @@ export class DataAccessWriter {
         }
 
         const resultSet: SqlResultSet = { hasSingleRecord: true, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
-        const query: SqlServerQuery = { queryType: QueryType.Update, parameters: whereParameters, relatedTable: table, modelType: null, resultSets: [resultSet] };
+        const query: SqlServerQuery = { queryType: QueryType.SelectSingle, parameters: whereParameters, relatedTable: table, modelType: null, resultSets: [resultSet] };
 
         const methodName = this.objectNameProvider.getTableSelectByPrimaryKeyMethodName(table);
         const resultSetClassName = this.objectNameProvider.getTableClassName(table);
@@ -277,6 +283,59 @@ export class DataAccessWriter {
             csharp.writeEndOfLine();
             csharp.decreaseIndent();
         });
+    }
+
+    private writeTableSelectByExpressionMethod(table: SqlServerTable): void {
+        // First write column mappings to a dictionary
+        const tableClassName = this.objectNameProvider.getTableClassName(table);
+        const mappingFieldName = `${tableClassName}ColumnMapping`;
+
+        this.csharp.writeLine(`private static readonly Dictionary<string, string> ${mappingFieldName} = new Dictionary<string, string>() {`);
+        this.csharp.increaseIndent();
+        const map: string[] = table.ownColumns.map((c, i) => { return { propName: this.objectNameProvider.getColumnPropertyName({ name: c.name, ordinal: i }), colName: c.name } })
+            .filter(item => item.colName !== item.propName) // when equal, we need no mapping
+            .map(item => `{"${item.propName}", "${item.colName}"}`);
+
+        map.forEach((entry, index) => {
+            this.csharp.writeIndent();
+            this.csharp.write(entry);
+            if (index < map.length)
+                this.csharp.writeEndOfLine(',');
+            else this.csharp.writeEndOfLine();
+        });
+        this.csharp.decreaseIndent();
+        this.csharp.writeLine('};');
+
+        // Write the method        
+        this.csharp.writeLine();
+        const resultSet: SqlResultSet = { hasSingleRecord: false, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
+        const query: SqlServerQuery = { queryType: QueryType.SelectSingle /* TODO: Multiple/ */, parameters: [], relatedTable: table, modelType: null, resultSets: [resultSet] };
+
+        const expressionParameter: ParameterDefinition = {name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`};
+        let methodDefinition: MethodDefinition = { name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
+
+        // Because the SQL parameters are built dynamically by the WhereBuilder, we need to add them dynamicaly in the generated code
+        const beforeWriteCommandParameters = (commandVariable: string, csharp: CSharpWriter): void => {
+            csharp.writeLine('// Add parameters created by the WhereBuilder');
+            csharp.writeLine('foreach (var parameter in wherePart.Parameters)');
+            csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
+            csharp.writeLine();
+        }
+        
+        this.writeExecuteQueryMethod(methodDefinition, this.objectNameProvider.getTableClassName(table), query, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
+            csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);  
+            csharp.writeLine('var wherePart = whereBuilder.ToSql(expression);');
+            csharp.writeLine();
+            csharp.writeIndent();
+            csharp.write(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => c.name).join(', ')}`);
+            csharp.writeEndOfLine();
+            csharp.increaseIndent();
+            csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
+            csharp.writeIndent();
+            csharp.writeEndOfLine('WHERE {wherePart.Sql}";');
+            csharp.decreaseIndent();
+        },
+        beforeWriteCommandParameters);
     }
 
     private writeTableDeleteMethod(table: SqlServerTable, idColumn: SqlServerColumn): void {
@@ -320,7 +379,7 @@ export class DataAccessWriter {
                 resultSet.columns.forEach(c => {
                     this.csharp.writeLine(`if (!dataRecord.IsDBNull(${c.ordinal}))`);
                     this.csharp.writeCodeBlock(() => {
-                        const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(c);
+                        const propertyName = this.objectNameProvider.getColumnPropertyName(c);
                         const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
                         // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)                        
                         this.csharp.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(${c.ordinal});`);
@@ -350,17 +409,23 @@ export class DataAccessWriter {
 
     // #endregion stored procedure data access
 
-    private writeExecuteQueryMethod(
-        methodName: string,
+    private writeExecuteQueryMethod(       
+        methodNameOrDefinition : string | MethodDefinition,
         resultSetClassName: string | null,
         q: SqlServerQuery,
         commandType: 'StoredProcedure' | 'Text',
         minifyParamNames: boolean,
-        writeCommandText: (commandTextVariable: string, csharp: CSharpWriter) => void
+        writeCommandText: (commandTextVariable: string, csharp: CSharpWriter) => void,
+        beforeWriteCommandParameters?: (commandVariable: string, csharp: CSharpWriter) => void
     ): void {
 
-        const method: MethodDefinition = { name: methodName, accessModifier: 'public' };
-
+        let method: MethodDefinition;
+        if (typeof (methodNameOrDefinition) === 'string') {
+            method = { name: methodNameOrDefinition, accessModifier: 'public' };
+        }
+        else
+            method = methodNameOrDefinition;        
+        
         // Are there any result sets?
         const hasResultSet = q.resultSets && q.resultSets.length;
         const hasSingleRecordResultSet = hasResultSet && q.resultSets![0].hasSingleRecord;
@@ -376,7 +441,7 @@ export class DataAccessWriter {
 
         const methodParametersBySqlName: Map<string, ParameterDefinition> = new Map<string, ParameterDefinition>();
 
-        const methodParameters: ParameterDefinition[] = [];
+        const methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
             const methodParameter: ParameterDefinition = {
                 name: this.objectNameProvider.getParameterName(p),
@@ -399,6 +464,9 @@ export class DataAccessWriter {
             this.csharp.writeLine(`using (var connection = new SqlConnection(${connectionStringFieldName}))`);
             this.csharp.writeLine(`using (var command = new SqlCommand(commandText, connection) { CommandType = CommandType.${commandType} })`);
             this.csharp.writeCodeBlock(() => {
+                if (beforeWriteCommandParameters) 
+                    beforeWriteCommandParameters('command', this.csharp);
+
                 q.parameters.forEach(p => {
                     this.writeCommandParameter(p, methodParametersBySqlName, minifyParamNames);
                     this.csharp.writeLine();

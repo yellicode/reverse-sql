@@ -227,7 +227,7 @@ export class ReverseDbBuilder {
                         isNullable: c.is_nullable,
                         parentColumn: null,
                         sqlTypeName: c.type_name,
-                        objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object' 
+                        objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object'
                     }
                     resultSetColumns.push(col);
                 });

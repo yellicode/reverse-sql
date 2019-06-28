@@ -30,7 +30,7 @@ export class ReverseSqlClassBuilder {
                 _resultSet: resultSet, name: this.objectNameProvider.getStoredProcedureResultSetClassName(sp), accessModifier: 'public', properties: [] 
             };
             resultSet.columns.forEach((col) => {
-                const propertyName = this.objectNameProvider.getResultSetColumnPropertyName(col);
+                const propertyName = this.objectNameProvider.getColumnPropertyName(col);
 
                 const property: PropertyDefinition = { name: propertyName, typeName: col.objectTypeName, accessModifier: 'public' };
                 property.isNullable = col.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.objectTypeName);
@@ -51,7 +51,7 @@ export class ReverseSqlClassBuilder {
             const classProperties: PropertyDefinition[] = [];
 
             table.ownColumns.forEach((tc, index) => {
-                const propertyName = this.objectNameProvider.getTableColumnPropertyname(tc);
+                const propertyName = this.objectNameProvider.getColumnPropertyName({ name: tc.name, ordinal: index });
                 // Also build a SqlResultSetColumn with mapping information
                 const col = TableResultSetBuilder.buildResultSetColumn(tc, index);
                 const property: PropertyDefinition = {

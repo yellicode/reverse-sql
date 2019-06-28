@@ -17,7 +17,7 @@ const expressionsNamespace = 'System.Linq.Expressions';
 const reflectionNamespace = 'System.Reflection';
 const compilerServicesNamespace = 'System.Runtime.CompilerServices';
 
-const operands: { [expressionType: string]: string; } = {
+const operators: { [expressionType: string]: string; } = {
     Add: '+',
     And: '&',
     AndAlso: 'AND',
@@ -199,20 +199,20 @@ export class WhereBuilderWriter {
         csharp.writeMethodBlock(nodeTypeToString, () => {
             csharp.writeLine('switch (nodeType)');
             csharp.writeCodeBlock(() => {
-                for (const expressionType in operands) {
-                    if (operands.hasOwnProperty(expressionType)) {                       
+                for (const expressionType in operators) {
+                    if (operators.hasOwnProperty(expressionType)) {                       
                         // Example    case System.Linq.Expressions.ExpressionType.Add: return "+"; 
                         csharp.writeIndent();
                         csharp.write(`case ${expressionsNamespace}.ExpressionType.${expressionType}: `);
                         switch (expressionType) {
                             case 'Equal':
-                                csharp.write(`return valueIsNull ? "IS" : "${operands[expressionType]}";`);
+                                csharp.write(`return valueIsNull ? "IS" : "${operators[expressionType]}";`);
                                 break;
                             case 'NotEqual':
-                                csharp.write(`return valueIsNull ? "IS NOT" : "${operands[expressionType]}";`);
+                                csharp.write(`return valueIsNull ? "IS NOT" : "${operators[expressionType]}";`);
                                 break;
                             default:
-                                csharp.write(`return "${operands[expressionType]}";`);
+                                csharp.write(`return "${operators[expressionType]}";`);
                         }
                         csharp.writeEndOfLine();
                     }

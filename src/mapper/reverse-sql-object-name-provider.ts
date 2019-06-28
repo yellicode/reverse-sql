@@ -9,9 +9,9 @@ export interface ReverseSqlObjectNameProvider {
     getTableClassName(table: SqlServerTable): string;
 
     /**
-    * Returns the property name to be generated for a column in a table.     
+    * Returns the property name to be generated for a column in a table or stored procedure result set.
     */
-    getTableColumnPropertyname(col: Column): string
+    getColumnPropertyName(col: {name?: string, ordinal: number}): string;
 
     /**
      * Gets a .NET method name that is generated for inserting data into the 
@@ -38,6 +38,12 @@ export interface ReverseSqlObjectNameProvider {
     getTableSelectByPrimaryKeyMethodName(table: SqlServerTable): string;
     
     /**
+     * Gets a .NET method name that is generated for selecting data from the 
+     * specified table using a LINQ expression.
+     */
+    getTableSelectByExpressionMethodName(table: SqlServerTable): string;
+
+    /**
     * Returns the method name to be generate for the method call to the 
     * specified stored procedure.     
     */
@@ -53,20 +59,12 @@ export interface ReverseSqlObjectNameProvider {
      * data records to result set classes.     
      */
     getResultSetMapperClassName(resultSetClassName: string): string;
-
-    /**
-    * Returns the property name to be generated for a column in a result set.     
-    */
-    getResultSetColumnPropertyName(col: SqlResultSetColumn): string;
-
-
-
+    
     /**
      * Returns the .NET parameter name to be generated for the 
      * specified SQL parameter.     
      */
     getParameterName(parameter: SqlParameter): string;
-
 }
 
 export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectNameProvider {
@@ -105,15 +103,10 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         return `${resultSetClassName}Mapper`;
     }
 
-    public getTableColumnPropertyname(col: Column): string {
-        return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
-    }
-
-    public getResultSetColumnPropertyName(col: SqlResultSetColumn): string {
+    public getColumnPropertyName(col: {name?: string, ordinal: number}): string {
         if (!col.name) return `Column${col.ordinal}`;
         return DefaultReverseSqlObjectNameProvider.cleanup(col.name);
     }
-
 
     public getStoredProcedureMethodName(sp: SqlServerStoredProcedure): string {
         return this.getCleanObjectNameWithSchema(sp);
@@ -137,6 +130,11 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
     public getTableSelectByPrimaryKeyMethodName(table: SqlServerTable): string {
         // Format: "dbo_SelectMyType"
         return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Select${NameUtility.capitalize(table.name)}` });
+    }
+
+    public getTableSelectByExpressionMethodName(table: SqlServerTable): string {
+        // Format: "dbo_SelectMyTypeWhere"
+        return this.getCleanObjectNameWithSchema({ schema: table.schema, name: `Select${NameUtility.capitalize(table.name)}Where` });
     }
 
     protected getCleanObjectNameWithSchema(object: { schema?: string, name: string }): string {

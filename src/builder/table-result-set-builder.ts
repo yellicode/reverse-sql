@@ -2,7 +2,7 @@ import { SqlServerColumn, SqlResultSetColumn } from '@yellicode/sql-server';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 
 export class TableResultSetBuilder {
-    public static buildResultSetColumn( c: SqlServerColumn, index: number): SqlResultSetColumn {
+    public static buildResultSetColumn(c: SqlServerColumn, index: number): SqlResultSetColumn {
         const col: SqlResultSetColumn = {
             ordinal: index,
             name: c.name,
