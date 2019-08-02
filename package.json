@@ -1,6 +1,6 @@
 {
   "name": "@yellicode/reverse-sql",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ADO.NET code generator extension for Yellicode - an extensible code generator. Generates ADO.NET code from a SQL Server database",
   "keywords": [],
   "license": "MIT",
