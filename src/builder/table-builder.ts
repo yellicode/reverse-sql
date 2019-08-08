@@ -10,12 +10,12 @@ export class TableBuilder {
 
     public build(
         columnsRecordSet: sql.IRecordSet<ColumnsSqlResult>,
-        columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult>): SqlServerTable[] {
+        columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult> | null): SqlServerTable[] {
         const tables: SqlServerTable[] = [];
 
         // group columns by (full, including schema) table name
         const columnRecordsByTableName = _.groupBy(columnsRecordSet, (c: ColumnsSqlResult) => `${c.TABLE_SCHEMA}_${c.TABLE_NAME}`);
-        const columnConstraintsByTableName = _.groupBy(columnConstraintsRecordSet, (c: ColumnConstraintsSqlResult) => `${c.TABLE_SCHEMA}_${c.TABLE_NAME}`);
+        const columnConstraintsByTableName = columnConstraintsRecordSet ? _.groupBy(columnConstraintsRecordSet, (c: ColumnConstraintsSqlResult) => `${c.TABLE_SCHEMA}_${c.TABLE_NAME}`) : null;
 
         Object
             .keys(columnRecordsByTableName)
@@ -29,10 +29,9 @@ export class TableBuilder {
                 const tableName = firstRecord.TABLE_NAME;
                 if (!this.shouldIncludedTable(tableSchema, tableName)) {
                     return;
-                }
+                }              
 
-                const constraintRecords: ColumnConstraintsSqlResult[] | null = columnConstraintsByTableName[tableFullName];
-                const dependentColumns: SqlServerColumn[] = []; // TODO?                
+                const constraintRecords: ColumnConstraintsSqlResult[] | null = columnConstraintsByTableName ? columnConstraintsByTableName[tableFullName] : null;                         
                 const ownColumns: SqlServerColumn[] = [];
 
                 const table: SqlServerTable = {
@@ -41,9 +40,12 @@ export class TableBuilder {
                     schema: firstRecord.TABLE_SCHEMA,
                     isJunctionTable: false, // don't know (or check out IdentifyMappingTable at https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/3626969ee348dde1c7172a1b7f58bb5ff0d61922/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude#L4143
                     ownColumns: ownColumns,
-                    dependentColumns: dependentColumns,
+                    dependentColumns: [], // TODO?
                     objectType: null
                 }
+                
+                // Make sure that columns are sorted by ordinal position (particularly important for table types)
+                columnRecords.sort((a, b) => a.ORDINAL_POSITION - b.ORDINAL_POSITION);
                 columnRecords.forEach(record => {
                     ownColumns.push(TableBuilder.createSqlServerColumn(table, record, constraintRecords));
                 });
@@ -69,7 +71,7 @@ export class TableBuilder {
             record.IS_COMPUTED ||
             record.DATA_TYPE === 'rowversion' || record.DATA_TYPE === 'timestamp' ||
             (record.DATA_TYPE === 'uniqueidentifier' && !!record.COLUMN_DEFAULT && record.COLUMN_DEFAULT.indexOf('newsequentialid') > -1);
-
+            
         return {
             name: record.SPECIFIC_NAME,
             sqlTypeName: record.DATA_TYPE,

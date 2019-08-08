@@ -71,6 +71,9 @@ export interface ResultSetSqlResult {
   is_hidden: boolean;
 }
 
+/**
+ * The interface for both table- and table type columns.
+ */
 export interface ColumnsSqlResult extends ObjectResult {
   TABLE_NAME: string,
   TABLE_SCHEMA: string,

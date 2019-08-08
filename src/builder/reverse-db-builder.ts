@@ -3,7 +3,7 @@ import { ReverseSqlOptions, BuilderObjecTypes } from './reverse-sql-options';
 import { SqlServerTable, SqlServerDatabase, QueryType, SqlServerParameter, SqlParameterDirection, SqlResultSetColumn } from '@yellicode/sql-server';
 import { SqlServerStoredProcedure } from '@yellicode/sql-server';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
-import { storedProceduresSql, parametersSql, columnsSql, columnConstraintsSql } from './queries/query-statements';
+import { storedProceduresSql, parametersSql, tableColumnsSql, columnConstraintsSql, tableTypeColumnsSql } from './queries/query-statements';
 import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult, ColumnsSqlResult, ColumnConstraintsSqlResult } from './queries/query-interfaces';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { TableBuilder } from './table-builder';
@@ -64,7 +64,7 @@ export class ReverseDbBuilder {
 
     private buildInternal(): Promise<SqlServerDatabase> {
         let tables: SqlServerTable[];
-        // let tableTypes: SqlServerTable[];
+        let tableTypes: SqlServerTable[];
         let storedProcedures: SqlServerStoredProcedure[];
 
         const promises: Promise<void>[] = [];
@@ -75,7 +75,9 @@ export class ReverseDbBuilder {
         }));
 
         // 2: Table types
-        // tableTypes = [];
+        promises.push(this.buildTableTypes().then(tt => {
+            tableTypes = tt;
+        }));
 
         // 3: Stored procedures
         promises.push(this.buildStoredProcedures().then(sp => {
@@ -85,11 +87,10 @@ export class ReverseDbBuilder {
         return Promise.all(promises).then(() => {
             if (!tables.length && !storedProcedures.length) {
                 this.logger.warn(`Could not find any tables or stored procedures in the database. Please make sure that you have a working connection with the approriate permissions.`);
-            }
-            else this.logger.info(`Successfully created database model with ${tables.length} tables and ${storedProcedures.length} stored procedures.`);
+            }            
             const db: SqlServerDatabase = {
                 tables: tables,
-                tableTypes: [], // todo: we need this when they are used by stored procedures
+                tableTypes: tableTypes,
                 storedProcedures: storedProcedures
             }
             return db;
@@ -105,7 +106,7 @@ export class ReverseDbBuilder {
         const recordSetPromises: Promise<void>[] = [];
 
         // Get column information (this includes table information as well, so no table info without columns)
-        recordSetPromises.push(this.pool.request().query(columnsSql)
+        recordSetPromises.push(this.pool.request().query(tableColumnsSql)
             .then((results: sql.IResult<ColumnsSqlResult>) => {                
                 if (results && results.recordsets.length)
                     columnsRecordSet = results.recordsets[0];
@@ -130,10 +131,30 @@ export class ReverseDbBuilder {
         })        
     }
     
-    private buildStoredProcedures(): Promise<SqlServerStoredProcedure[]> {
-        // https://stackoverflow.com/questions/14574773/retrieve-column-names-and-types-of-a-stored-procedure
-        // or, see ReadStoredProcReturnObject in https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/master/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude
+    private buildTableTypes(): Promise<SqlServerTable[]> {
+        if (!this.includeTableTypes)
+            return Promise.resolve([]);
 
+        let columnsRecordSet: sql.IRecordSet<ColumnsSqlResult> | null = null;        
+        const recordSetPromises: Promise<void>[] = [];
+
+        // Get column information (this includes table information as well, so no table info without columns)
+        recordSetPromises.push(this.pool.request().query(tableTypeColumnsSql)
+            .then((results: sql.IResult<ColumnsSqlResult>) => {                
+                if (results && results.recordsets.length)
+                    columnsRecordSet = results.recordsets[0];                
+            }));
+            
+        return Promise.all(recordSetPromises).then(() => {            
+            if (!columnsRecordSet) 
+                return [];
+
+            const tableBuilder: TableBuilder = new TableBuilder(this.options.tableTypeFilter);
+            return tableBuilder.build(columnsRecordSet, null /* we have no constraints for table types */);
+        })        
+    }
+
+    private buildStoredProcedures(): Promise<SqlServerStoredProcedure[]> {     
         if (!this.includeStoredProcedures)
             return Promise.resolve([]);
 

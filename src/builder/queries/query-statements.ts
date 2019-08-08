@@ -52,7 +52,7 @@ export const parametersSql = `
   WHERE P.IS_RESULT = 'NO' OR P.IS_RESULT IS NULL                               
 `;
 
-export const columnsSql = `SELECT
+export const tableColumnsSql = `SELECT
 c.TABLE_SCHEMA AS SPECIFIC_SCHEMA,
 c.COLUMN_NAME AS SPECIFIC_NAME,
 c.TABLE_NAME,
@@ -76,10 +76,34 @@ LEFT OUTER JOIN sys.tables AS st ON st.schema_id = ss.schema_id AND st.[name] = 
 LEFT OUTER JOIN sys.views AS sv ON sv.schema_id = ss.schema_id AND sv.[name] = c.TABLE_NAME
 INNER JOIN sys.all_columns AS sc ON sc.object_id = COALESCE( st.object_id, sv.object_id ) AND c.COLUMN_NAME = sc.[name]
 
-WHERE
-c.TABLE_NAME NOT IN ('EdmMetadata', '__MigrationHistory', '__RefactorLog', 'sysdiagrams')
+WHERE c.TABLE_NAME NOT IN ('EdmMetadata', '__MigrationHistory', '__RefactorLog', 'sysdiagrams')
 
 ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION`;
+
+export const tableTypeColumnsSql = `SELECT      
+schema_name(tt.schema_id) AS SPECIFIC_SCHEMA  
+,sc.name AS SPECIFIC_NAME
+,tt.name AS TABLE_NAME
+,schema_name(tt.schema_id) AS TABLE_SCHEMA  
+,ROW_NUMBER() OVER(ORDER BY sc.column_id) As ORDINAL_POSITION
+,c.text as COLUMN_DEFAULT
+,CASE WHEN sc.is_nullable = 1 THEN 'YES' ELSE 'NO' END AS IS_NULLABLE
+,st.name AS DATA_TYPE
+,sc.max_length AS CHARACTER_MAXIMUM_LENGTH
+,sc.precision AS NUMERIC_PRECISION
+,sc.scale AS NUMERIC_SCALE  
+,NULL AS DATETIME_PRECISION -- TODO
+,sc.is_identity AS IS_IDENTITY
+,sc.is_rowguidcol AS IS_ROWGUID_COL
+,sc.is_computed AS IS_COMPUTED
+ 
+FROM sys.table_types tt
+INNER JOIN sys.columns sc on sc.object_id = tt.type_table_object_id
+INNER JOIN sys.types st on st.user_type_id = sc.user_type_id
+LEFT JOIN sys.objects o ON o.parent_object_id = sc.object_id AND sc.default_object_id = o.object_id
+LEFT JOIN sys.syscomments c on c.id = o.object_id
+WHERE tt.is_user_defined = 1 AND tt.is_table_type = 1
+ORDER BY sc.object_id, column_id`;
 
 export const columnConstraintsSql = `SELECT DISTINCT
 u1.TABLE_SCHEMA,
@@ -98,180 +122,3 @@ LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
 	ON rc.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT = u1.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT
 LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE u2
 	ON u2.CONSTRAINT_NAME COLLATE DATABASE_DEFAULT = rc.UNIQUE_CONSTRAINT_NAME COLLATE DATABASE_DEFAULT`;
-
-// /**
-//  * Get SQL table information.
-//  */
-// export const tablesSql = `
-//   SELECT
-//     o.object_id,
-//     o.type,
-//     s.name AS [schema],
-//     o.name,
-//     ISNULL(c.identity_count, 0) AS [identity_count]
-//   FROM
-//     sys.objects o
-//     JOIN sys.schemas s ON o.schema_id = s.schema_id
-//     LEFT JOIN (
-//       SELECT
-//         i.object_id,
-//         count(1) AS [identity_count]
-//       FROM
-//         sys.identity_columns i
-//       GROUP BY
-//         i.object_id
-//     ) c on c.object_id = o.object_id
-//   where
-//     o.type = 'U'
-//     AND o.is_ms_shipped = 0
-//   ORDER BY
-//     s.name,
-//     o.name
-// `;
-
-// /**
-//  * Get SQL column information.
-//  */
-// export const columnsSql = `
-//   SELECT
-//     c.object_id,
-//     c.name,
-//     tp.name AS [datatype],
-//     tp.is_user_defined,
-//     c.max_length,
-//     c.is_computed,
-//     c.precision,
-//     c.scale AS [scale],
-//     c.collation_name,
-//     c.is_nullable,
-//     dc.definition,
-//     ic.is_identity,
-//     ic.seed_value,
-//     ic.increment_value,
-//     cc.definition AS [formula]
-//   FROM
-//     sys.columns c
-//     JOIN sys.types tp ON c.user_type_id = tp.user_type_id
-//     LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
-//     LEFT JOIN sys.default_constraints dc ON
-//       c.default_object_id != 0
-//       AND c.object_id = dc.parent_object_id
-//       AND c.column_id = dc.parent_column_id
-//     LEFT JOIN sys.identity_columns ic ON
-//       c.is_identity = 1
-//       AND c.object_id = ic.object_id
-//       AND c.column_id = ic.column_id
-// `;
-
-/**
- * Get SQL primary key information.
- */
-export const primaryKeysSql = `
-  SELECT
-    c.object_id,
-    ic.is_descending_key,
-    k.name,
-    c.name AS [column],
-    CASE
-      WHEN ic.index_id = 1 THEN 'CLUSTERED'
-      WHEN ic.index_id > 1 THEN 'NONCLUSTERED'
-      ELSE 'HEAP'
-    END as [type]
-  FROM
-    sys.index_columns ic
-    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-    LEFT JOIN sys.key_constraints k ON k.parent_object_id = ic.object_id
-  WHERE
-    ic.is_included_column = 0
-    AND ic.index_id = k.unique_index_id
-    AND k.type = 'PK'
-`;
-
-/**
- * Get SQL foreign key information.
- */
-export const foreignKeysSql = `
-  SELECT
-    po.object_id,
-    k.constraint_object_id,
-    fk.is_not_trusted,
-    c.name AS [column],
-    rc.name AS [reference],
-    fk.name,
-    SCHEMA_NAME(po.schema_id) AS [schema],
-    po.name AS [table],
-    SCHEMA_NAME(ro.schema_id) AS [parent_schema],
-    ro.name AS [parent_table],
-    fk.delete_referential_action,
-    fk.update_referential_action
-  FROM
-    sys.foreign_key_columns k
-    JOIN sys.columns rc ON rc.object_id = k.referenced_object_id AND rc.column_id = k.referenced_column_id
-    JOIN sys.columns c ON c.object_id = k.parent_object_id AND c.column_id = k.parent_column_id
-    JOIN sys.foreign_keys fk ON fk.object_id = k.constraint_object_id
-    JOIN sys.objects ro ON ro.object_id = fk.referenced_object_id
-    JOIN sys.objects po ON po.object_id = fk.parent_object_id
-`;
-
-
-/**
- * Get SQL information for user defined types.
- */
-export const typesSql = `
-  SELECT
-    o.object_id,
-    o.type,
-    s.name AS [schema],
-    t.name,
-    TYPE_NAME(t.system_type_id) as [system_type],
-    t.max_length,
-    t.precision,
-    t.scale,
-    t.is_nullable
-  FROM
-    sys.types t
-    LEFT JOIN sys.table_types tt ON tt.user_type_id = t.user_type_id
-    LEFT JOIN sys.objects o ON o.object_id = tt.type_table_object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-  WHERE
-    t.is_user_defined = 1
-  ORDER BY
-    s.name,
-    o.name
-`;
-
-/**
- * Get SQL information for procs, triggers, functions, etc.
- */
-export const objectsSql = `
-  SELECT
-    so.name,
-    s.name AS [schema],
-    so.type AS [type],
-    STUFF
-    (
-      (
-        SELECT
-          CAST(sc_inner.text AS varchar(max))
-        FROM
-          sys.objects so_inner
-          INNER JOIN syscomments sc_inner ON sc_inner.id = so_inner.object_id
-          INNER JOIN sys.schemas s_inner ON s_inner.schema_id = so_inner.schema_id
-        WHERE
-          so_inner.name = so.name
-          AND s_inner.name = s.name
-        FOR XML PATH(''), TYPE
-      ).value('(./text())[1]', 'varchar(max)')
-      ,1
-      ,0
-      ,''
-    ) AS [text]
-  FROM
-    sys.objects so
-    INNER JOIN syscomments sc ON sc.id = so.object_id AND so.type in ('P', 'V', 'TF', 'IF', 'FN', 'TR')
-    INNER JOIN sys.schemas s ON s.schema_id = so.schema_id
-  GROUP BY
-    so.name,
-    s.name,
-    so.type
-`;

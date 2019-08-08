@@ -19,6 +19,8 @@ export interface ReverseSqlOptions {
 
     tableFilter?: (schema: string, name: string) => boolean;
 
+    tableTypeFilter?: (schema: string, name: string) => boolean;
+
      /**
      * Set to true to include schema names for any database object that is not in the 'dbo' schema.
      * The default value is false.
