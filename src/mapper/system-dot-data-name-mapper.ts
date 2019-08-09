@@ -76,42 +76,50 @@ export class SystemDotDataNameMapper {
                 throw `Could not determine the SqlDbType that corresponds to SQL type ${sqlType}.`;
         }
     }
-
+    
     public static getDataRecordGetValueMethod(csharpTypeName: string): string {
+        return 'Get'+SystemDotDataNameMapper.mapTypeName(csharpTypeName);
+    }    
+
+    public static getDataRecordSetValueMethod(csharpTypeName: string): string {
+        return 'Set'+SystemDotDataNameMapper.mapTypeName(csharpTypeName);
+    }
+
+    private static mapTypeName(csharpTypeName: string): string {
         switch (csharpTypeName) {
             case csharpTypes.STRING:
-                return 'GetString';
+                return 'String';
             case csharpTypes.LONG:
-                return 'GetInt64';
+                return 'Int64';
             case csharpTypes.SHORT:
-                return 'GetInt16'
+                return 'Int16'
             case csharpTypes.INT:
-                return 'GetInt32';
+                return 'Int32';
             case csharpTypes.GUID:
-                return 'GetGuid';
+                return 'Guid';
             case csharpTypes.DATETIME:
-                return 'GetDateTime';            
+                return 'DateTime';            
             case csharpTypes.DOUBLE:
-                return 'GetDouble';
+                return 'Double';
             case csharpTypes.FLOAT:
-                return 'GetFloat';
+                return 'Float';
             case csharpTypes.DECIMAL:
-                return 'GetDecimal';
+                return 'Decimal';
             case csharpTypes.BYTE:
-                return 'GetByte';
+                return 'Byte';
             case csharpTypes.BYTE_ARRAY:
-                return 'GetBytes';
+                return 'Bytes';
             case csharpTypes.BOOL:
-                return 'GetBoolean';
+                return 'Boolean';
             case csharpTypes.DBGEOGRAPHY:                
             case csharpTypes.DBGEOMETRY:
             case csharpTypes.HIERARCHYID:
             case csharpTypes.DATETIMEOFFSET:
-                return 'GetDateTimeOffset'; // SqlDataReader only
+                return 'DateTimeOffset'; // SqlDataReader only
             case csharpTypes.TIMESPAN:
-                return 'GetTimeSpan'; // SqlDataReader only
+                return 'TimeSpan'; // SqlDataReader only
             default:
-                return 'GetValue';
+                return 'Value';
         }
     }
 }

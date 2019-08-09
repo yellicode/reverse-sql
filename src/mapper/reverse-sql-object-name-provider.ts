@@ -9,6 +9,11 @@ export interface ReverseSqlObjectNameProvider {
     getTableClassName(table: SqlServerTable): string;
 
     /**
+    * Returns the name to be generated for the specified table type.
+    */
+    getTableTypeClassName(schema: string, name: string): string;
+
+    /**
     * Returns the property name to be generated for a column in a table or stored procedure result set.
     */
     getColumnPropertyName(col: {name?: string, ordinal: number}): string;
@@ -73,7 +78,7 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
     }
 
 
-    private static cleanup(input: string): string {
+    protected static cleanup(input: string): string {
         if (!input) return '';
 
         // Remove non-word characters
@@ -94,6 +99,15 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(table.name);
         if (this.includeSchema && table.schema && table.schema !== 'dbo') {
             const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(table.schema);
+            return `${cleanedUpSchemaName}_${cleanedUpTableName}`;
+        }
+        else return `${cleanedUpTableName}`;
+    }
+   
+    public getTableTypeClassName(schema: string, name: string): string {
+        const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(name);
+        if (this.includeSchema && schema) {
+            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(schema);
             return `${cleanedUpSchemaName}_${cleanedUpTableName}`;
         }
         else return `${cleanedUpTableName}`;

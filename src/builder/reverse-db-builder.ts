@@ -280,9 +280,10 @@ export class ReverseDbBuilder {
         parametersRecordSet
             .filter(p => p.SPECIFIC_NAME === storedProcedure.SPECIFIC_NAME && p.SPECIFIC_SCHEMA === storedProcedure.SPECIFIC_SCHEMA)
             .forEach((p, index) => {
-                const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE;
-                const sqlTypeName = p.USER_DEFINED_TYPE || p.DATA_TYPE; // USER_DEFINED_TYPE includes the schema, is this helpful?
-                const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';                
+                const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE_NAME;
+                const sqlTypeName = isTableType ? p.USER_DEFINED_TYPE_NAME : p.DATA_TYPE;
+                // Default to DataTable if isTableType. We can override this when we generate the actual table type classes.
+                const objectTypeName = isTableType ?  'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';
                 const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
 
                 const parameter: SqlServerParameter = {
@@ -295,7 +296,8 @@ export class ReverseDbBuilder {
                     objectTypeName: objectTypeName,
                     tableName: null,
                     columnName: null,                    
-                    sqlTypeName: sqlTypeName, 
+                    sqlTypeName: sqlTypeName!, 
+                    sqlTypeSchema: p.USER_DEFINED_TYPE_SCHEMA || null,
                     length: p.CHARACTER_MAXIMUM_LENGTH || null,
                     precision: p.NUMERIC_PRECISION || null,
                     scale: p.NUMERIC_SCALE || null,

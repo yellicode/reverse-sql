@@ -4,7 +4,7 @@ import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } fro
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { ReverseSqlOptions } from './reverse-sql-options';
 import { TableResultSetBuilder } from './table-result-set-builder';
-import { ClassDefinitionWithResultSet } from './class-definition-with-result-set';
+import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from './class-definition-with-result-set';
 
 /**
  * Builds C# class definitions for objects in a database.
@@ -42,9 +42,8 @@ export class ReverseSqlClassBuilder {
 
         return classDefinitions;
     }
-
-    public buildTableClasses(tables: SqlServerTable[]): ClassDefinition[] {
-         // Build C# class and property definitions    
+    
+    public buildTableClasses(tables: SqlServerTable[]): ClassDefinition[] {     
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         tables.forEach((table) => {
             const resultSetColumns: SqlResultSetColumn[] = [];
@@ -64,11 +63,41 @@ export class ReverseSqlClassBuilder {
                 classProperties.push(property);
             });
             
-            const classDefinition: ClassDefinitionWithResultSet =             { 
-                _resultSet: {columns: resultSetColumns},
-                name: this.objectNameProvider.getTableClassName(table), 
-                accessModifier: 'public', 
-                properties: classProperties };
+            const classDefinition: ClassDefinitionWithResultSet = {
+                _resultSet: { columns: resultSetColumns },
+                name: this.objectNameProvider.getTableClassName(table),
+                accessModifier: 'public',
+                properties: classProperties
+            };
+
+            classDefinitions.push(classDefinition);
+        }); 
+        return classDefinitions;
+    }
+
+    public buildTableTypeClasses(tableType: SqlServerTable[]): ClassDefinition[]  {
+        const classDefinitions: ClassDefinitionWithTable[] = [];
+        tableType.forEach((tt) => {            
+            const classProperties: PropertyDefinition[] = [];
+
+            tt.ownColumns.forEach((tc, index) => {
+                const propertyName = this.objectNameProvider.getColumnPropertyName({ name: tc.name, ordinal: index });
+                const typeName = SqlToCSharpTypeMapper.getCSharpTypeName(tc.sqlTypeName) || 'object';                
+                const property: PropertyDefinition = {
+                    name: propertyName,
+                    typeName: typeName,
+                    accessModifier: 'public'
+                };
+                property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(typeName);                
+                classProperties.push(property);
+            });
+            
+            const classDefinition: ClassDefinitionWithTable = {
+                _table: tt,
+                name: this.objectNameProvider.getTableTypeClassName(tt.schema!, tt.name),
+                accessModifier: 'public',
+                properties: classProperties
+            };
 
             classDefinitions.push(classDefinition);
         }); 

@@ -26,12 +26,9 @@ export interface ParametersSqlResult extends ObjectResult {
    */
   CHARACTER_MAXIMUM_LENGTH: number | null,
   NUMERIC_PRECISION: number | null;
-  NUMERIC_SCALE: number | null,
-  // DATETIME_PRECISION: number | null,
-  /**
-   * The full name of the user defined type ({USER_DEFINED_TYPE_SCHEMA}.{USER_DEFINED_TYPE_NAME})
-   */
-  USER_DEFINED_TYPE: string | null
+  NUMERIC_SCALE: number | null,  
+  USER_DEFINED_TYPE_SCHEMA : string | null,
+  USER_DEFINED_TYPE_NAME: string | null
 }
 
 /**

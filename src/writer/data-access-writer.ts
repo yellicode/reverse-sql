@@ -1,12 +1,12 @@
 import { CSharpWriter, ClassDefinition, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
-import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase, SqlServerQuery, SqlServerTable, SqlServerColumn, QueryType, SqlResultSet } from '@yellicode/sql-server';
+import { SqlServerStoredProcedure, SqlParameterDirection, SqlServerParameter, SqlServerDatabase, SqlServerQuery, SqlServerTable, SqlServerColumn, QueryType, SqlResultSet, Table } from '@yellicode/sql-server';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
 import { ReverseSqlOptions } from '../builder/reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel, NameUtility } from '@yellicode/core';
 import { TableResultSetBuilder } from '../builder/table-result-set-builder';
-import { ClassDefinitionWithResultSet } from '../builder/class-definition-with-result-set';
+import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-with-result-set';
 import { SqlParameterWithColumn } from '../builder/sql-parameter-with-column';
 import { WhereBuilderWriter } from './where-builder.writer';
 
@@ -117,6 +117,7 @@ export class DataAccessWriter {
             index: index,
             isIdentity: c.isIdentity,
             sqlTypeName: c.sqlTypeName,
+            sqlTypeSchema: null,
             tableName: c.table.name,
             columnName: c.name,
             precision: c.precision,
@@ -195,7 +196,7 @@ export class DataAccessWriter {
 
     private writeTableUpdateMethods(table: SqlServerTable): void {
         const idColumn = table.ownColumns.find(c => c.isIdentity);
-        if (!idColumn) 
+        if (!idColumn)
             return;
 
         const idParameter = this.buildSqlParameterFromColumn(idColumn, 0);
@@ -242,13 +243,13 @@ export class DataAccessWriter {
         const methodDefinition: MethodDefinition = { name: methodName, accessModifier: 'public', parameters: methodParameters };
 
         this.csharp.writeLine();
-        this.csharp.writeMethodBlock(methodDefinition, () => {            
+        this.csharp.writeMethodBlock(methodDefinition, () => {
             this.csharp.writeIndent();
             this.csharp.write(`${methodName}(`);
             // Pass input parameters, mapped from the table class instance
-            this.csharp.write(allParameters               
+            this.csharp.write(allParameters
                 .map((p, i) => {
-                    return `${tableParameterName}.${this.objectNameProvider.getColumnPropertyName({name: p._column.name, ordinal: i})}`;
+                    return `${tableParameterName}.${this.objectNameProvider.getColumnPropertyName({ name: p._column.name, ordinal: i })}`;
                 })
                 .join(', '));
             this.csharp.writeEndOfLine(');');
@@ -311,7 +312,7 @@ export class DataAccessWriter {
         const resultSet: SqlResultSet = { hasSingleRecord: false, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
         const query: SqlServerQuery = { queryType: QueryType.SelectSingle /* TODO: Multiple/ */, parameters: [], relatedTable: table, modelType: null, resultSets: [resultSet] };
 
-        const expressionParameter: ParameterDefinition = {name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`};
+        const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>` };
         let methodDefinition: MethodDefinition = { name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
 
         // Because the SQL parameters are built dynamically by the WhereBuilder, we need to add them dynamicaly in the generated code
@@ -321,9 +322,9 @@ export class DataAccessWriter {
             csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
             csharp.writeLine();
         }
-        
+
         this.writeExecuteQueryMethod(methodDefinition, this.objectNameProvider.getTableClassName(table), query, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
-            csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);  
+            csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);
             csharp.writeLine('var wherePart = whereBuilder.ToSql(expression);');
             csharp.writeLine();
             csharp.writeIndent();
@@ -335,7 +336,7 @@ export class DataAccessWriter {
             csharp.writeEndOfLine('WHERE {wherePart.Sql}";');
             csharp.decreaseIndent();
         },
-        beforeWriteCommandParameters);
+            beforeWriteCommandParameters);
     }
 
     private writeTableDeleteMethod(table: SqlServerTable, idColumn: SqlServerColumn): void {
@@ -372,7 +373,7 @@ export class DataAccessWriter {
 
         this.csharp.writeClassBlock(mapperClassDefinition, () => {
             const dataRecordParameter: ParameterDefinition = { name: 'dataRecord', typeName: 'IDataRecord' };
-            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: true, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };            
+            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: true, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };
             this.csharp.writeMethodBlock(mapDataRecordMethod, () => {
                 this.csharp.writeLine(`if (${dataRecordParameter.name} == null) return null;`);
                 this.csharp.writeLine(`var result = new ${classDefinition.name}();`);
@@ -389,6 +390,81 @@ export class DataAccessWriter {
             });
         });
     }
+
+    public writeTableTypeDataReaders(tableTypeClasses: ClassDefinition[]): void {
+        tableTypeClasses.forEach(cd => {
+            this.writeTableTypeDataReader(cd, (cd as ClassDefinitionWithTable)._table);
+        })
+    }
+
+    private writeTableTypeDataReader(classDefinition: ClassDefinition, tableType: Table): void {
+        if (!tableType) {
+            this.logger.verbose(`ClassDefinition '${classDefinition.name}' does not have a related table type.`);
+            return; // not a ClassDefinitionWithTable?
+        }
+
+        const tableTypeClassName = classDefinition.name;
+        const readerClassName = `${tableTypeClassName}DataReader`;
+
+        const readerClassDefinition: ClassDefinition = {
+            implements: ['IEnumerable<SqlDataRecord>'],
+            name: readerClassName,
+            accessModifier: 'internal',
+            xmlDocSummary: [`Creates a forward-only stream of data records from a collection of <see cref="${tableTypeClassName}"/> objects.`]
+        };
+
+        this.csharp.writeClassBlock(readerClassDefinition, () => {
+            this.csharp.writeLine(`private readonly IEnumerable<${tableTypeClassName}> _collection;`);
+
+            // ctor
+            this.csharp.writeLine();
+            const ctor: MethodDefinition = { name: readerClassName, accessModifier: 'public', isConstructor: true, parameters: [{ name: 'collection', typeName: `IEnumerable<${tableTypeClassName}>` }] };
+            this.csharp.writeMethodBlock(ctor, () => {                
+                this.csharp.writeLine('_collection = collection ?? throw new ArgumentNullException(nameof(collection));');                
+            });
+
+            // GetEnumerator()
+            this.csharp.writeLine();
+            const getEnumeratorMethod: MethodDefinition = { name: 'GetEnumerator', accessModifier: 'public', returnTypeName: 'IEnumerator<SqlDataRecord>' };
+            // Initialize a SqlDataRecord
+            this.csharp.writeMethodBlock(getEnumeratorMethod, () => {
+                this.csharp.writeLine('var record = new SqlDataRecord(');
+                this.csharp.increaseIndent();
+                tableType.ownColumns.forEach((c, i) => {
+                    const sqlDbType = SystemDotDataNameMapper.getSqlDbType(c.sqlTypeName);
+                    // Only the following are allowed to be passed to the constructor as dbType: Bit, BigInt, DateTime, Decimal, Float, Int, Money, Numeric, SmallDateTime, 
+                    // SmallInt, SmallMoney, TimeStamp, TinyInt, UniqueIdentifier, Xml. See https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.server.sqlmetadata.-ctor?view=netframework-4.8
+                    this.csharp.writeIndent();
+                    this.csharp.write(`new SqlMetaData("${c.name}", SqlDbType.${sqlDbType}`);
+                    // We need to provide the maxLength for some dbTypes, avoiding exceptions like 'The dbType NVarChar is invalid for this constructor.'.
+                    // TODO: are there any other types that are invalid?
+                    if (sqlDbType === 'NVarChar' || sqlDbType === 'varchar') {
+                        this.csharp.write(`, ${c.length || 'SqlMetaData.Max'}`);
+                    }
+                    this.csharp.write(')');
+                    this.csharp.writeEndOfLine(i < tableType.ownColumns.length - 1 ? ',' : undefined);
+                });
+                this.csharp.decreaseIndent();
+                this.csharp.writeLine(');');
+                // Fill the SqlDataRecord as we enumerate
+                this.csharp.writeLine();
+                this.csharp.writeLine('foreach (var item in _collection)');
+                this.csharp.writeCodeBlock(() => {
+                    tableType.ownColumns.forEach((c, i) => {
+                        const propertyName = this.objectNameProvider.getColumnPropertyName({ name: c.name, ordinal: i });
+                        const objectTypeName = SqlToCSharpTypeMapper.getCSharpTypeName(c.sqlTypeName) || 'object';
+                        const setValueMethod = SystemDotDataNameMapper.getDataRecordSetValueMethod(objectTypeName);
+                        this.csharp.writeLine(`record.${setValueMethod}(${i}, item.${propertyName});`);
+                    });
+                    this.csharp.writeLine('yield return record;');
+                });
+            });
+            // Explicit IEnumerable.GetEnumerator() implementation
+            this.csharp.writeLine();
+            this.csharp.writeLine('IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }');
+        });
+    }
+
 
     private writeStoredProcedureMethods(storedProcedures: SqlServerStoredProcedure[]): void {
         storedProcedures.forEach(sp => {
@@ -409,8 +485,8 @@ export class DataAccessWriter {
 
     // #endregion stored procedure data access
 
-    private writeExecuteQueryMethod(       
-        methodNameOrDefinition : string | MethodDefinition,
+    private writeExecuteQueryMethod(
+        methodNameOrDefinition: string | MethodDefinition,
         resultSetClassName: string | null,
         q: SqlServerQuery,
         commandType: 'StoredProcedure' | 'Text',
@@ -424,8 +500,8 @@ export class DataAccessWriter {
             method = { name: methodNameOrDefinition, accessModifier: 'public' };
         }
         else
-            method = methodNameOrDefinition;        
-        
+            method = methodNameOrDefinition;
+
         // Are there any result sets?
         const hasResultSet = q.resultSets && q.resultSets.length;
         const hasSingleRecordResultSet = hasResultSet && q.resultSets![0].hasSingleRecord;
@@ -443,14 +519,19 @@ export class DataAccessWriter {
 
         const methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
+            const objectTypeName = p.isTableValued ? 
+                `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.sqlTypeSchema!, p.sqlTypeName)}>`:
+                p.objectTypeName; // already filled with a standard .NET type by ReverseDbBuilder
+
             const methodParameter: ParameterDefinition = {
                 name: this.objectNameProvider.getParameterName(p),
-                typeName: p.objectTypeName
+                typeName: objectTypeName
             };
             methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
             // We don't know if the SP parameter (or the related column, at this moment) is nullable, so allow every input parameter to be null
-            methodParameter.isNullable = p.isNullable && SqlToCSharpTypeMapper.canBeNullable(methodParameter.typeName);
-            methodParameters.push(methodParameter);
+            methodParameter.isNullable = p.isNullable && !p.isTableValued && SqlToCSharpTypeMapper.canBeNullable(methodParameter.typeName);
+
+            methodParameters.push(methodParameter);            
             methodParametersBySqlName.set(p.name, methodParameter);
         });
 
@@ -464,7 +545,7 @@ export class DataAccessWriter {
             this.csharp.writeLine(`using (var connection = new SqlConnection(${connectionStringFieldName}))`);
             this.csharp.writeLine(`using (var command = new SqlCommand(commandText, connection) { CommandType = CommandType.${commandType} })`);
             this.csharp.writeCodeBlock(() => {
-                if (beforeWriteCommandParameters) 
+                if (beforeWriteCommandParameters)
                     beforeWriteCommandParameters('command', this.csharp);
 
                 q.parameters.forEach(p => {
@@ -510,7 +591,7 @@ export class DataAccessWriter {
         const parameterName = minifyParamNames ? DataAccessWriter.minifyParameterName(p) : p.name;
         const variableName = `${methodParameter.name}Parameter`;
         const sqlDbType = p.isTableValued ? 'Structured' : SystemDotDataNameMapper.getSqlDbType(p.sqlTypeName);
-        // console.log(`getFromSqlType for ${p.typeName} returned ${sqlDbType}`);
+        
         this.csharp.writeLine(`// ${p.name}`);
         if (methodParameter.isOutput) {
             // Make a SqlParameter that will contain the output       
@@ -518,16 +599,22 @@ export class DataAccessWriter {
             this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
             return;
         }
-        // The parameter is an input parameter
 
-        // if (p.dbParameter.isTableValued){
-        //     const adapterName = `${p.csharpTypeName}TableAdapter`;
-        //     this.writer.writeLine(`command.Parameters.Add(${adapterName}.CreateAsDataParameter("@${dbParameter.name}", ${p.csharpName}));`);                    
-        // }
-        const valueSelector = methodParameter.isNullable ? `${methodParameter.name}.GetValueOrDefault()` : methodParameter.name;
+        // The parameter is an input parameter       
+        let valueSelector = methodParameter.isNullable ? `${methodParameter.name}.GetValueOrDefault()` : methodParameter.name;
+        if (p.isTableValued) {            
+            const tableTypeClassName = this.objectNameProvider.getTableTypeClassName(p.sqlTypeSchema!, p.sqlTypeName);
+            // To send a table-valued parameter with no rows, use a null reference for the value instead.
+            valueSelector = `${methodParameter.name} != null ? new ${tableTypeClassName}DataReader(${methodParameter.name}) : null`;
+        }
+
         this.csharp.writeIndent();
-        this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
+        // Initialize the parameter
+        this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);        
         this.csharp.write(`Direction = ParameterDirection.Input, Value = ${valueSelector}`);
+        if (p.isTableValued) {
+            this.csharp.write(`, TypeName = "${p.sqlTypeSchema!}.${p.sqlTypeName}"`);
+        }
         if (p.precision || p.scale) {
             this.csharp.write(`, Precision = ${p.precision}`);
         }
@@ -539,13 +626,15 @@ export class DataAccessWriter {
         }
         this.csharp.writeEndOfLine('};');
 
-        if (methodParameter.isNullable) {
-            this.csharp.writeLine(`if (!${methodParameter.name}.HasValue)`);
-        }
-        else {
-            this.csharp.writeLine(`if (${variableName}.Value == null)`);
-        }
-        this.csharp.writeLineIndented(`${variableName}.Value = DBNull.Value;`);
+        // Null check                
+        if (!p.isTableValued) { // Table-valued parameters cannot be DBNull, we pass a null reference instead (see above)
+            if (methodParameter.isNullable) {
+                this.csharp.writeLine(`if (!${methodParameter.name}.HasValue) ${variableName}.Value = DBNull.Value;`);
+            }
+            else {
+                this.csharp.writeLine(`if (${variableName}.Value == null) ${variableName}.Value = DBNull.Value;`);
+            }            
+        }        
         this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
     }
 
