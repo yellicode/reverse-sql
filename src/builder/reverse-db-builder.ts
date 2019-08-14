@@ -67,7 +67,7 @@ export class ReverseDbBuilder {
         let tableTypes: SqlServerTable[];
         let storedProcedures: SqlServerStoredProcedure[];
 
-        const promises: Promise<void>[] = [];
+        const promises: Promise<any>[] = [];
 
         // 1: Tables
         promises.push(this.buildTables().then(t => {
@@ -75,12 +75,14 @@ export class ReverseDbBuilder {
         }));
 
         // 2: Table types
-        promises.push(this.buildTableTypes().then(tt => {
+        const tableTypesPromise = this.buildTableTypes().then(tt => {
             tableTypes = tt;
-        }));
+            return tt;
+        });
+        promises.push(tableTypesPromise);   
 
         // 3: Stored procedures
-        promises.push(this.buildStoredProcedures().then(sp => {
+        promises.push(this.buildStoredProcedures(tableTypesPromise).then(sp => {
             storedProcedures = sp;
         }));
 
@@ -154,7 +156,7 @@ export class ReverseDbBuilder {
         })        
     }
 
-    private buildStoredProcedures(): Promise<SqlServerStoredProcedure[]> {     
+    private buildStoredProcedures(tableTypesPromise: Promise<SqlServerTable[]>): Promise<SqlServerStoredProcedure[]> {
         if (!this.includeStoredProcedures)
             return Promise.resolve([]);
 
@@ -162,10 +164,11 @@ export class ReverseDbBuilder {
         let objectsRecordSet: sql.IRecordSet<StoredProceduresSqlResult> | null = null;
         let parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null = null;
 
-        const recordSetPromises: Promise<void>[] = [];
+        const promises: Promise<any>[] = [];
+        let tableTypes: SqlServerTable[] = [];
 
-        // 1. Get the actual objects 
-        recordSetPromises.push(this.pool
+        // 1. Get the actual objects
+        promises.push(this.pool
             .request().query(storedProceduresSql)
             .then((results: sql.IResult<StoredProceduresSqlResult>) => {                
                 if (results && results.recordsets.length)
@@ -176,16 +179,20 @@ export class ReverseDbBuilder {
         );
 
         // 2. Get the parameters
-        recordSetPromises.push(this.pool.request().query(parametersSql)
+        promises.push(this.pool.request().query(parametersSql)
             .then((results: sql.IResult<ParametersSqlResult>) => {
                 if (results && results.recordsets.length)
                     parametersRecordSet = results.recordsets[0];
             })
         );
        
+        // 3. Wait for table types        
+        promises.push(tableTypesPromise.then((tt) => {
+            tableTypes = tt;            
+        }));
 
         // We got all we need, put it all together
-        return Promise.all(recordSetPromises).then(() => {
+        return Promise.all(promises).then(() => {
             const storedProcs: SqlServerStoredProcedure[] = [];
             if (!objectsRecordSet) 
                 return storedProcs; // bad luck
@@ -203,7 +210,7 @@ export class ReverseDbBuilder {
                     schema: o.SPECIFIC_SCHEMA,
                     relatedTable: null,
                     modelType: null, // should be a null, let's genererate C# classes from the output parameters
-                    parameters: this.getParametersForStoredProcedure(parametersRecordSet, o),
+                    parameters: this.getParametersForStoredProcedure(parametersRecordSet, o, tableTypes),
                     resultSets: [] // we will retrieve these below
                 };
                 
@@ -271,7 +278,8 @@ export class ReverseDbBuilder {
 
     private getParametersForStoredProcedure(
         parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null,
-        storedProcedure: StoredProceduresSqlResult): SqlServerParameter[] {
+        storedProcedure: StoredProceduresSqlResult,
+        tableTypes: SqlServerTable[]): SqlServerParameter[] {
 
         const result: SqlServerParameter[] = [];
         if (!parametersRecordSet)
@@ -284,8 +292,7 @@ export class ReverseDbBuilder {
                 const sqlTypeName = isTableType ? p.USER_DEFINED_TYPE_NAME : p.DATA_TYPE;
                 // Default to DataTable if isTableType. We can override this when we generate the actual table type classes.
                 const objectTypeName = isTableType ?  'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';
-                const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
-
+                const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell              
                 const parameter: SqlServerParameter = {
                     // SqlParameter
                     name: p.PARAMETER_NAME, // includes @
@@ -296,8 +303,7 @@ export class ReverseDbBuilder {
                     objectTypeName: objectTypeName,
                     tableName: null,
                     columnName: null,                    
-                    sqlTypeName: sqlTypeName!, 
-                    sqlTypeSchema: p.USER_DEFINED_TYPE_SCHEMA || null,
+                    sqlTypeName: sqlTypeName!,
                     length: p.CHARACTER_MAXIMUM_LENGTH || null,
                     precision: p.NUMERIC_PRECISION || null,
                     scale: p.NUMERIC_SCALE || null,
@@ -307,8 +313,8 @@ export class ReverseDbBuilder {
                     isReadOnly: isTableType,
                     isNullable: isNullable,
                     isTableValued: isTableType,
-                    tableType: null // TODO: we should connect this to a reverse-engineered table!
-                };
+                    tableType: isTableType ? (tableTypes.find(tt => tt.name === p.USER_DEFINED_TYPE_NAME && tt.schema === p.USER_DEFINED_TYPE_SCHEMA) || null) : null
+                };                
                 result.push(parameter);
             });
         return result;

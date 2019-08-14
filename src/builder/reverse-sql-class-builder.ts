@@ -4,7 +4,7 @@ import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } fro
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { ReverseSqlOptions } from './reverse-sql-options';
 import { TableResultSetBuilder } from './table-result-set-builder';
-import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from './class-definition-with-result-set';
+import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from './class-definition-extensions';
 
 /**
  * Builds C# class definitions for objects in a database.
@@ -94,7 +94,7 @@ export class ReverseSqlClassBuilder {
             
             const classDefinition: ClassDefinitionWithTable = {
                 _table: tt,
-                name: this.objectNameProvider.getTableTypeClassName(tt.schema!, tt.name),
+                name: this.objectNameProvider.getTableTypeClassName(tt),
                 accessModifier: 'public',
                 properties: classProperties
             };

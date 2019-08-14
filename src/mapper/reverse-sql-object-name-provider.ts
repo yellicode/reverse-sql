@@ -11,7 +11,7 @@ export interface ReverseSqlObjectNameProvider {
     /**
     * Returns the name to be generated for the specified table type.
     */
-    getTableTypeClassName(schema: string, name: string): string;
+    getTableTypeClassName(tableType: SqlServerTable): string;
 
     /**
     * Returns the property name to be generated for a column in a table or stored procedure result set.
@@ -104,10 +104,10 @@ export class DefaultReverseSqlObjectNameProvider implements ReverseSqlObjectName
         else return `${cleanedUpTableName}`;
     }
    
-    public getTableTypeClassName(schema: string, name: string): string {
-        const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(name);
-        if (this.includeSchema && schema) {
-            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(schema);
+    public getTableTypeClassName(tableType: SqlServerTable): string {
+        const cleanedUpTableName = DefaultReverseSqlObjectNameProvider.cleanup(tableType.name);
+        if (this.includeSchema && tableType.schema) {
+            const cleanedUpSchemaName = DefaultReverseSqlObjectNameProvider.cleanup(tableType.schema);
             return `${cleanedUpSchemaName}_${cleanedUpTableName}`;
         }
         else return `${cleanedUpTableName}`;

@@ -6,7 +6,7 @@ import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
 import { ReverseSqlOptions } from '../builder/reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel, NameUtility } from '@yellicode/core';
 import { TableResultSetBuilder } from '../builder/table-result-set-builder';
-import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-with-result-set';
+import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-extensions';
 import { SqlParameterWithColumn } from '../builder/sql-parameter-with-column';
 import { WhereBuilderWriter } from './where-builder.writer';
 
@@ -116,8 +116,7 @@ export class DataAccessWriter {
             name: `@${c.name}`,
             index: index,
             isIdentity: c.isIdentity,
-            sqlTypeName: c.sqlTypeName,
-            sqlTypeSchema: null,
+            sqlTypeName: c.sqlTypeName,            
             tableName: c.table.name,
             columnName: c.name,
             precision: c.precision,
@@ -519,8 +518,8 @@ export class DataAccessWriter {
 
         const methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
-            const objectTypeName = p.isTableValued ? 
-                `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.sqlTypeSchema!, p.sqlTypeName)}>`:
+            const objectTypeName = p.tableType ? 
+                `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.tableType)}>`:
                 p.objectTypeName; // already filled with a standard .NET type by ReverseDbBuilder
 
             const methodParameter: ParameterDefinition = {
@@ -602,8 +601,8 @@ export class DataAccessWriter {
 
         // The parameter is an input parameter       
         let valueSelector = methodParameter.isNullable ? `${methodParameter.name}.GetValueOrDefault()` : methodParameter.name;
-        if (p.isTableValued) {            
-            const tableTypeClassName = this.objectNameProvider.getTableTypeClassName(p.sqlTypeSchema!, p.sqlTypeName);
+        if (p.tableType) {            
+            const tableTypeClassName = this.objectNameProvider.getTableTypeClassName(p.tableType);
             // To send a table-valued parameter with no rows, use a null reference for the value instead.
             valueSelector = `${methodParameter.name} != null ? new ${tableTypeClassName}DataReader(${methodParameter.name}) : null`;
         }
@@ -612,8 +611,8 @@ export class DataAccessWriter {
         // Initialize the parameter
         this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);        
         this.csharp.write(`Direction = ParameterDirection.Input, Value = ${valueSelector}`);
-        if (p.isTableValued) {
-            this.csharp.write(`, TypeName = "${p.sqlTypeSchema!}.${p.sqlTypeName}"`);
+        if (p.tableType) {
+            this.csharp.write(`, TypeName = "${p.tableType.schema}.${p.tableType.name}"`);
         }
         if (p.precision || p.scale) {
             this.csharp.write(`, Precision = ${p.precision}`);
