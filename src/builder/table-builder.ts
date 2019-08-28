@@ -1,6 +1,6 @@
 import * as sql from 'mssql';
 import { ColumnsSqlResult, ColumnConstraintsSqlResult } from './queries/query-interfaces';
-import { SqlServerTable, SqlServerConstraint, SqlServerColumn, Table, ConstraintType } from '@yellicode/sql-server';
+import { DbTableConstraint, DbTable, DbColumn, DbTableConstraintType } from '../model/database';
 import * as _ from 'lodash';
 
 export class TableBuilder {
@@ -10,8 +10,8 @@ export class TableBuilder {
 
     public build(
         columnsRecordSet: sql.IRecordSet<ColumnsSqlResult>,
-        columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult> | null): SqlServerTable[] {
-        const tables: SqlServerTable[] = [];
+        columnConstraintsRecordSet: sql.IRecordSet<ColumnConstraintsSqlResult> | null): DbTable[] {
+        const tables: DbTable[] = [];
 
         // group columns by (full, including schema) table name
         const columnRecordsByTableName = _.groupBy(columnsRecordSet, (c: ColumnsSqlResult) => `${c.TABLE_SCHEMA}_${c.TABLE_NAME}`);
@@ -32,16 +32,14 @@ export class TableBuilder {
                 }              
 
                 const constraintRecords: ColumnConstraintsSqlResult[] | null = columnConstraintsByTableName ? columnConstraintsByTableName[tableFullName] : null;                         
-                const ownColumns: SqlServerColumn[] = [];
+                const ownColumns: DbColumn[] = [];
 
-                const table: SqlServerTable = {
-                    constraints: TableBuilder.createSqlServerConstraints(constraintRecords),
+                const table: DbTable = {
+                    constraints: TableBuilder.createDbTableConstraints(constraintRecords),
                     name: tableName,
                     schema: firstRecord.TABLE_SCHEMA,
-                    isJunctionTable: false, // don't know (or check out IdentifyMappingTable at https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/3626969ee348dde1c7172a1b7f58bb5ff0d61922/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude#L4143
-                    ownColumns: ownColumns,
-                    dependentColumns: [], // TODO?
-                    objectType: null
+                    // isJunctionTable: false, // don't know (or check out IdentifyMappingTable at https://github.com/sjh37/EntityFramework-Reverse-POCO-Code-First-Generator/blob/3626969ee348dde1c7172a1b7f58bb5ff0d61922/EntityFramework.Reverse.POCO.Generator/EF.Reverse.POCO.Core.ttinclude#L4143
+                    ownColumns: ownColumns                    
                 }
                 
                 // Make sure that columns are sorted by ordinal position (particularly important for table types)
@@ -55,7 +53,7 @@ export class TableBuilder {
         return tables;
     }
     
-    private static createSqlServerColumn(table: Table, record: ColumnsSqlResult, tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerColumn {
+    private static createSqlServerColumn(table: DbTable, record: ColumnsSqlResult, tableConstraints: ColumnConstraintsSqlResult[] | null): DbColumn {
 
         const isPrimaryKey =
             !!tableConstraints &&
@@ -84,37 +82,36 @@ export class TableBuilder {
             isForeignKey: isForeignKey,
             isReadOnly: isReadOnly,
             hasDefaultValue: !!record.COLUMN_DEFAULT,
-            table: table,
-            isNavigableInModel: false
+            table: table            
         }
     }
     
-    private static createSqlServerConstraints(tableConstraints: ColumnConstraintsSqlResult[] | null): SqlServerConstraint[] {
+    private static createDbTableConstraints(tableConstraints: ColumnConstraintsSqlResult[] | null): DbTableConstraint[] {
 
-        const result: SqlServerConstraint[] = [];
+        const result: DbTableConstraint[] = [];
         if (!tableConstraints)
             return result;
 
         tableConstraints.forEach(record => {
-            let constraintType: ConstraintType;
+            let constraintType: DbTableConstraintType;
 
             if (record.CONSTRAINT_TYPE === 'PRIMARY KEY')
-                constraintType = ConstraintType.PrimaryKey;
+                constraintType = DbTableConstraintType.PrimaryKey;
             else if (record.CONSTRAINT_TYPE === 'FOREIGN KEY')
-                constraintType = ConstraintType.ForeignKey;
+                constraintType = DbTableConstraintType.ForeignKey;
             else
                 return; // unsupported constraint
 
-            const constraint: SqlServerConstraint = {
+            const constraint: DbTableConstraint = {
                 constraintType: constraintType,
                 name: record.CONSTRAINT_NAME,
                 columnName: record.COLUMN_NAME,
-                cascadeOnDelete: false, // if you need this, add INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS.DELETE_RULE to the record
+                // cascadeOnDelete: false, // if you need this, add INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS.DELETE_RULE to the record
                 primaryKeyTableSchema: null,
                 primaryKeyTableName: null,
                 primaryKeyColumnName: null
             }
-            if (constraintType === ConstraintType.ForeignKey) {
+            if (constraintType === DbTableConstraintType.ForeignKey) {
                 constraint.primaryKeyTableSchema = record.PK_TABLE_SCHEMA;
                 constraint.primaryKeyTableName = record.PK_TABLE_NAME;
                 constraint.primaryKeyColumnName = record.PK_COLUMN_NAME;

@@ -1,4 +1,5 @@
-import { SqlServerStoredProcedure, SqlServerTable, SqlResultSet, SqlResultSetColumn } from '@yellicode/sql-server';
+import { SqlResultSetColumn, DbTable } from '../model/database';
+import { SqlStoredProcedure } from '../model/sql-server-database';
 import { ClassDefinition, PropertyDefinition } from '@yellicode/csharp';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
@@ -17,7 +18,7 @@ export class ReverseSqlClassBuilder {
         this.objectNameProvider = opts.objectNameProvider || new DefaultReverseSqlObjectNameProvider(opts.includeSchema || false);
     }
 
-    public buildStoredProcResultSetClasses(storedProcedures: SqlServerStoredProcedure[]): ClassDefinition[] {
+    public buildStoredProcResultSetClasses(storedProcedures: SqlStoredProcedure[]): ClassDefinition[] {
         // Build C# class and property definitions    
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         storedProcedures.forEach((sp) => {
@@ -26,8 +27,8 @@ export class ReverseSqlClassBuilder {
                 return;
             const resultSet = sp.resultSets[0];
 
-            const classDefinition: ClassDefinitionWithResultSet = { 
-                _resultSet: resultSet, name: this.objectNameProvider.getStoredProcedureResultSetClassName(sp), accessModifier: 'public', properties: [] 
+            const classDefinition: ClassDefinitionWithResultSet = {
+                _resultSet: resultSet, name: this.objectNameProvider.getStoredProcedureResultSetClassName(sp), accessModifier: 'public', properties: []
             };
             resultSet.columns.forEach((col) => {
                 const propertyName = this.objectNameProvider.getColumnPropertyName(col);
@@ -42,8 +43,8 @@ export class ReverseSqlClassBuilder {
 
         return classDefinitions;
     }
-    
-    public buildTableClasses(tables: SqlServerTable[]): ClassDefinition[] {     
+
+    public buildTableClasses(tables: DbTable[]): ClassDefinition[] {
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         tables.forEach((table) => {
             const resultSetColumns: SqlResultSetColumn[] = [];
@@ -62,7 +63,7 @@ export class ReverseSqlClassBuilder {
                 resultSetColumns.push(col);
                 classProperties.push(property);
             });
-            
+
             const classDefinition: ClassDefinitionWithResultSet = {
                 _resultSet: { columns: resultSetColumns },
                 name: this.objectNameProvider.getTableClassName(table),
@@ -71,27 +72,27 @@ export class ReverseSqlClassBuilder {
             };
 
             classDefinitions.push(classDefinition);
-        }); 
+        });
         return classDefinitions;
     }
 
-    public buildTableTypeClasses(tableType: SqlServerTable[]): ClassDefinition[]  {
+    public buildTableTypeClasses(tableType: DbTable[]): ClassDefinition[] {
         const classDefinitions: ClassDefinitionWithTable[] = [];
-        tableType.forEach((tt) => {            
+        tableType.forEach((tt) => {
             const classProperties: PropertyDefinition[] = [];
 
             tt.ownColumns.forEach((tc, index) => {
                 const propertyName = this.objectNameProvider.getColumnPropertyName({ name: tc.name, ordinal: index });
-                const typeName = SqlToCSharpTypeMapper.getCSharpTypeName(tc.sqlTypeName) || 'object';                
+                const typeName = SqlToCSharpTypeMapper.getCSharpTypeName(tc.sqlTypeName) || 'object';
                 const property: PropertyDefinition = {
                     name: propertyName,
                     typeName: typeName,
                     accessModifier: 'public'
                 };
-                property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(typeName);                
+                property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(typeName);
                 classProperties.push(property);
             });
-            
+
             const classDefinition: ClassDefinitionWithTable = {
                 _table: tt,
                 name: this.objectNameProvider.getTableTypeClassName(tt),
@@ -100,7 +101,7 @@ export class ReverseSqlClassBuilder {
             };
 
             classDefinitions.push(classDefinition);
-        }); 
+        });
         return classDefinitions;
     }
 }

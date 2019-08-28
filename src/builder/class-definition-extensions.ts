@@ -1,4 +1,4 @@
-import { SqlResultSet, Table } from '@yellicode/sql-server';
+import { SqlResultSet, DbTable } from '../model/database';
 import { ClassDefinition } from '@yellicode/csharp';
 
 export interface ClassDefinitionWithResultSet extends ClassDefinition {
@@ -6,5 +6,5 @@ export interface ClassDefinitionWithResultSet extends ClassDefinition {
 }
 
 export interface ClassDefinitionWithTable extends ClassDefinition {
-    _table: Table;
+    _table: DbTable;
 }

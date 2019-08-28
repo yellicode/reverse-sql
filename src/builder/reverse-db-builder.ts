@@ -1,7 +1,8 @@
 import * as sql from 'mssql';
 import { ReverseSqlOptions, BuilderObjecTypes } from './reverse-sql-options';
-import { SqlServerTable, SqlServerDatabase, QueryType, SqlServerParameter, SqlParameterDirection, SqlResultSetColumn } from '@yellicode/sql-server';
-import { SqlServerStoredProcedure } from '@yellicode/sql-server';
+import { SqlParameterDirection, SqlResultSetColumn, DbTable } from '../model/database';
+import { SqlServerDatabase, SqlServerParameter, SqlStoredProcedure } from '../model/sql-server-database';
+
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
 import { storedProceduresSql, parametersSql, tableColumnsSql, columnConstraintsSql, tableTypeColumnsSql } from './queries/query-statements';
 import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult, ColumnsSqlResult, ColumnConstraintsSqlResult } from './queries/query-interfaces';
@@ -24,7 +25,7 @@ export class ReverseDbBuilder {
         this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);
         if (!poolOrConnectionString)
             throw 'Cannot create SqlServerDbBuilder instance. Please provide a connection pool or connection string in the constructor';
-            
+
         if (typeof poolOrConnectionString == 'string') {
             this.pool = new sql.ConnectionPool(poolOrConnectionString);
         }
@@ -34,7 +35,7 @@ export class ReverseDbBuilder {
         this.includeTables = !!(objectTypes & BuilderObjecTypes.Tables);
         this.includeTableTypes = !!(objectTypes & BuilderObjecTypes.TableTypes);
         this.includeStoredProcedures = !!(objectTypes & BuilderObjecTypes.StoredProcedures);
-    } 
+    }
 
     public build(): Promise<SqlServerDatabase> {
         return this.connect()
@@ -63,9 +64,9 @@ export class ReverseDbBuilder {
     }
 
     private buildInternal(): Promise<SqlServerDatabase> {
-        let tables: SqlServerTable[];
-        let tableTypes: SqlServerTable[];
-        let storedProcedures: SqlServerStoredProcedure[];
+        let tables: DbTable[];
+        let tableTypes: DbTable[];
+        let storedProcedures: SqlStoredProcedure[];
 
         const promises: Promise<any>[] = [];
 
@@ -79,7 +80,7 @@ export class ReverseDbBuilder {
             tableTypes = tt;
             return tt;
         });
-        promises.push(tableTypesPromise);   
+        promises.push(tableTypesPromise);
 
         // 3: Stored procedures
         promises.push(this.buildStoredProcedures(tableTypesPromise).then(sp => {
@@ -89,7 +90,7 @@ export class ReverseDbBuilder {
         return Promise.all(promises).then(() => {
             if (!tables.length && !storedProcedures.length) {
                 this.logger.warn(`Could not find any tables or stored procedures in the database. Please make sure that you have a working connection with the approriate permissions.`);
-            }            
+            }
             const db: SqlServerDatabase = {
                 tables: tables,
                 tableTypes: tableTypes,
@@ -99,7 +100,7 @@ export class ReverseDbBuilder {
         })
     }
 
-    private buildTables(): Promise<SqlServerTable[]> {
+    private buildTables(): Promise<DbTable[]> {
         if (!this.includeTables)
             return Promise.resolve([]);
 
@@ -109,54 +110,54 @@ export class ReverseDbBuilder {
 
         // Get column information (this includes table information as well, so no table info without columns)
         recordSetPromises.push(this.pool.request().query(tableColumnsSql)
-            .then((results: sql.IResult<ColumnsSqlResult>) => {                
+            .then((results: sql.IResult<ColumnsSqlResult>) => {
                 if (results && results.recordsets.length)
                     columnsRecordSet = results.recordsets[0];
-                else 
-                    this.logger.warn('Could not find any tables or columns. If this is unexpected, please check the current user permissions.');                
+                else
+                    this.logger.warn('Could not find any tables or columns. If this is unexpected, please check the current user permissions.');
             }));
-            
-       recordSetPromises.push(this.pool.request().query(columnConstraintsSql)
-            .then((results: sql.IResult<ColumnConstraintsSqlResult>) => {               
-                if (results && results.recordsets.length) 
+
+        recordSetPromises.push(this.pool.request().query(columnConstraintsSql)
+            .then((results: sql.IResult<ColumnConstraintsSqlResult>) => {
+                if (results && results.recordsets.length)
                     columnConstraintsRecordSet = results.recordsets[0];
-                else 
+                else
                     this.logger.warn('Could not find any column constraints. If this is unexpected, please check the current user permissions.');
-            }));    
-        
-        return Promise.all(recordSetPromises).then(() => {            
-            if (!columnsRecordSet || !columnConstraintsRecordSet) 
+            }));
+
+        return Promise.all(recordSetPromises).then(() => {
+            if (!columnsRecordSet || !columnConstraintsRecordSet)
                 return [];
 
             const tableBuilder: TableBuilder = new TableBuilder(this.options.tableFilter);
             return tableBuilder.build(columnsRecordSet, columnConstraintsRecordSet);
-        })        
+        })
     }
-    
-    private buildTableTypes(): Promise<SqlServerTable[]> {
+
+    private buildTableTypes(): Promise<DbTable[]> {
         if (!this.includeTableTypes)
             return Promise.resolve([]);
 
-        let columnsRecordSet: sql.IRecordSet<ColumnsSqlResult> | null = null;        
+        let columnsRecordSet: sql.IRecordSet<ColumnsSqlResult> | null = null;
         const recordSetPromises: Promise<void>[] = [];
 
         // Get column information (this includes table information as well, so no table info without columns)
         recordSetPromises.push(this.pool.request().query(tableTypeColumnsSql)
-            .then((results: sql.IResult<ColumnsSqlResult>) => {                
+            .then((results: sql.IResult<ColumnsSqlResult>) => {
                 if (results && results.recordsets.length)
-                    columnsRecordSet = results.recordsets[0];                
+                    columnsRecordSet = results.recordsets[0];
             }));
-            
-        return Promise.all(recordSetPromises).then(() => {            
-            if (!columnsRecordSet) 
+
+        return Promise.all(recordSetPromises).then(() => {
+            if (!columnsRecordSet)
                 return [];
 
             const tableBuilder: TableBuilder = new TableBuilder(this.options.tableTypeFilter);
             return tableBuilder.build(columnsRecordSet, null /* we have no constraints for table types */);
-        })        
+        })
     }
 
-    private buildStoredProcedures(tableTypesPromise: Promise<SqlServerTable[]>): Promise<SqlServerStoredProcedure[]> {
+    private buildStoredProcedures(tableTypesPromise: Promise<DbTable[]>): Promise<SqlStoredProcedure[]> {
         if (!this.includeStoredProcedures)
             return Promise.resolve([]);
 
@@ -165,17 +166,17 @@ export class ReverseDbBuilder {
         let parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null = null;
 
         const promises: Promise<any>[] = [];
-        let tableTypes: SqlServerTable[] = [];
+        let tableTypes: DbTable[] = [];
 
         // 1. Get the actual objects
         promises.push(this.pool
             .request().query(storedProceduresSql)
-            .then((results: sql.IResult<StoredProceduresSqlResult>) => {                
+            .then((results: sql.IResult<StoredProceduresSqlResult>) => {
                 if (results && results.recordsets.length)
                     objectsRecordSet = results.recordsets[0];
-                else 
-                    this.logger.warn('Could not find any stored procedures. If this is unexpected, please check the current user permissions.');                                    
-            })           
+                else
+                    this.logger.warn('Could not find any stored procedures. If this is unexpected, please check the current user permissions.');
+            })
         );
 
         // 2. Get the parameters
@@ -185,35 +186,32 @@ export class ReverseDbBuilder {
                     parametersRecordSet = results.recordsets[0];
             })
         );
-       
+
         // 3. Wait for table types        
         promises.push(tableTypesPromise.then((tt) => {
-            tableTypes = tt;            
+            tableTypes = tt;
         }));
 
         // We got all we need, put it all together
         return Promise.all(promises).then(() => {
-            const storedProcs: SqlServerStoredProcedure[] = [];
-            if (!objectsRecordSet) 
+            const storedProcs: SqlStoredProcedure[] = [];
+            if (!objectsRecordSet)
                 return storedProcs; // bad luck
 
             objectsRecordSet.forEach(o => {
                 if (o.ROUTINE_TYPE !== 'PROCEDURE')
                     return; // can also be a Table-Valued function, we should support these in the future
 
-                if (!this.shouldIncludedStoredProcedure(o.SPECIFIC_SCHEMA, o.SPECIFIC_NAME)) 
+                if (!this.shouldIncludedStoredProcedure(o.SPECIFIC_SCHEMA, o.SPECIFIC_NAME))
                     return;
-                    
-                const proc: SqlServerStoredProcedure = {
-                    queryType: QueryType.Unknown,
+
+                const proc: SqlStoredProcedure = {                   
                     name: o.SPECIFIC_NAME,
                     schema: o.SPECIFIC_SCHEMA,
-                    relatedTable: null,
-                    modelType: null, // should be a null, let's genererate C# classes from the output parameters
                     parameters: this.getParametersForStoredProcedure(parametersRecordSet, o, tableTypes),
                     resultSets: [] // we will retrieve these below
                 };
-                
+
                 storedProcs.push(proc);
             });
             return storedProcs;
@@ -227,39 +225,36 @@ export class ReverseDbBuilder {
 
     }
 
-    private populateStoredProcResultSets(storedProcs: SqlServerStoredProcedure[]): Promise<void[]> {
+    private populateStoredProcResultSets(storedProcs: SqlStoredProcedure[]): Promise<void[]> {
         const promises: Promise<void>[] = [];
 
         storedProcs.forEach(sp => {
-            
+
             const sql = `SELECT column_ordinal, name, TYPE_NAME(system_type_id) type_name, source_table, source_column, is_nullable, is_hidden FROM sys.dm_exec_describe_first_result_set('EXEC [${sp.schema}].[${sp.name}]', NULL, 1)`;
             // console.log(`Retrieving result set of ${sp.name}.`);            
             promises.push(this.pool.request().query(sql).then((results: sql.IResult<ResultSetSqlResult>) => {
                 const resultcolumns = results.recordsets[0];
-                if (!resultcolumns || !resultcolumns.length) 
+                if (!resultcolumns || !resultcolumns.length)
                     return;
-             
+
                 const resultSetColumns: SqlResultSetColumn[] = [];
-                resultcolumns.filter(c => !c.is_hidden).forEach(c => {                   
+                resultcolumns.filter(c => !c.is_hidden).forEach(c => {
                     const ordinal = +c.column_ordinal;
                     if (ordinal === 0)
-                         return;
+                        return;
 
-                    const col: SqlResultSetColumn = {                                     
+                    const col: SqlResultSetColumn = {
                         ordinal: ordinal - 1,
                         name: c.name || undefined,
-                        sourceTable: c.source_table,
-                        sourceColumn: c.source_column,
-                        isForeignKey: false,
-                        isJoined: false,
-                        isNullable: c.is_nullable,
-                        parentColumn: null,
+                        // sourceTable: c.source_table,
+                        // sourceColumn: c.source_column,                                                
+                        isNullable: c.is_nullable,                        
                         sqlTypeName: c.type_name,
                         objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object'
                     }
                     resultSetColumns.push(col);
                 });
-                
+
                 if (!resultSetColumns.length)
                     return;
 
@@ -267,10 +262,10 @@ export class ReverseDbBuilder {
                 resultSetColumns.sort((a, b) => {
                     return (a.ordinal < b.ordinal) ? -1 : (a.ordinal > b.ordinal) ? 1 : 0;
                 });
-                
+
                 // Because we use dm_exec_describe_first_result_set, we will never get more than one result set.
                 // The alternative, SET FMTONLY ON/OFF, is deprecated in newer versions of SQL Server
-                sp.resultSets!.push({columns: resultSetColumns});
+                sp.resultSets!.push({ columns: resultSetColumns });
             }));
         });
         return Promise.all(promises);
@@ -279,7 +274,7 @@ export class ReverseDbBuilder {
     private getParametersForStoredProcedure(
         parametersRecordSet: sql.IRecordSet<ParametersSqlResult> | null,
         storedProcedure: StoredProceduresSqlResult,
-        tableTypes: SqlServerTable[]): SqlServerParameter[] {
+        tableTypes: DbTable[]): SqlServerParameter[] {
 
         const result: SqlServerParameter[] = [];
         if (!parametersRecordSet)
@@ -291,37 +286,33 @@ export class ReverseDbBuilder {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE_NAME;
                 const sqlTypeName = isTableType ? p.USER_DEFINED_TYPE_NAME : p.DATA_TYPE;
                 // Default to DataTable if isTableType. We can override this when we generate the actual table type classes.
-                const objectTypeName = isTableType ?  'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';
+                const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';
                 const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell              
                 const parameter: SqlServerParameter = {
                     // SqlParameter
                     name: p.PARAMETER_NAME, // includes @
-                    index: index,
-                    isFilter: false,
-                    isIdentity: false,
-                    objectProperty: null,
-                    objectTypeName: objectTypeName,
-                    tableName: null,
-                    columnName: null,                    
+                    index: index,                    
+                    isIdentity: false,                    
+                    objectTypeName: objectTypeName,                    
+                    columnName: null,
                     sqlTypeName: sqlTypeName!,
                     length: p.CHARACTER_MAXIMUM_LENGTH || null,
                     precision: p.NUMERIC_PRECISION || null,
                     scale: p.NUMERIC_SCALE || null,
-                    direction: this.parseParameterMode(p.PARAMETER_MODE, p.PARAMETER_NAME),
-                    isMultiValued: isTableType,
-                    // SqlServerParameter
+                    direction: this.parseParameterMode(p.PARAMETER_MODE, p.PARAMETER_NAME),                    
                     isReadOnly: isTableType,
                     isNullable: isNullable,
+                    // SqlServerParameter only
                     isTableValued: isTableType,
                     tableType: isTableType ? (tableTypes.find(tt => tt.name === p.USER_DEFINED_TYPE_NAME && tt.schema === p.USER_DEFINED_TYPE_SCHEMA) || null) : null
-                };                
+                };
                 result.push(parameter);
             });
         return result;
     }
-    
+
     private parseParameterMode(mode: ParameterMode, name: string): SqlParameterDirection {
-        switch(mode){
+        switch (mode) {
             case 'IN':
                 return SqlParameterDirection.Input;
             case 'OUT':
@@ -338,5 +329,5 @@ export class ReverseDbBuilder {
         if (!this.options.storedProcedureFilter) return true;
 
         return this.options.storedProcedureFilter(schema, name);
-    }    
+    }
 }

@@ -29,9 +29,6 @@
   "dependencies": {
     "@yellicode/core": "^1.1.3",
     "@yellicode/csharp": "^1.7.2",
-    "@yellicode/dotnet-profile": "^1.0.1",
-    "@yellicode/elements": "^1.1.1",
-    "@yellicode/sql-server": "^1.0.3",
     "@yellicode/templating": "^1.5.1",
     "lodash": "^4.17.15",
     "mssql": "^4.3.2"

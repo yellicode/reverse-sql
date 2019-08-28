@@ -1,5 +1,6 @@
-import { SqlServerParameter, SqlServerColumn } from '@yellicode/sql-server';
+import { SqlServerParameter } from '../model/sql-server-database';
+import { DbColumn } from '../model/database';
 
-export interface SqlParameterWithColumn extends SqlServerParameter  {
-    _column: SqlServerColumn;
+export interface SqlServerParameterWithColumn extends SqlServerParameter  {
+    _column: DbColumn;
 }

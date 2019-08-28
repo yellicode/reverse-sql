@@ -1,20 +1,18 @@
-import { SqlServerColumn, SqlResultSetColumn } from '@yellicode/sql-server';
+import { DbColumn, SqlResultSetColumn } from '../model/database';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 
 export class TableResultSetBuilder {
-    public static buildResultSetColumn(c: SqlServerColumn, index: number): SqlResultSetColumn {
+    public static buildResultSetColumn(c: DbColumn, index: number): SqlResultSetColumn {
         const col: SqlResultSetColumn = {
             ordinal: index,
             name: c.name,
-            sourceColumn: c.name,
+            // sourceTable: c.table.name,
+            // sourceColumn: c.name,
+            // isForeignKey: c.isForeignKey,            
             objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.sqlTypeName) || 'object',
-            sourceTable: c.table.name,
             isNullable: c.isNullable,
-            isForeignKey: c.isForeignKey,
-            isJoined: false,
-            sqlTypeName: c.sqlTypeName,
-            parentColumn: null,
+            sqlTypeName: c.sqlTypeName,            
         }
         return col;
-    }    
+    }
 }
