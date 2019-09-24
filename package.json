@@ -1,8 +1,14 @@
 {
   "name": "@yellicode/reverse-sql",
   "version": "1.0.1",
-  "description": "ADO.NET code generator extension for Yellicode - an extensible code generator. Generates ADO.NET code from a SQL Server database",
-  "keywords": [],
+  "description": "Reverse engineers a SQL-Server database and generates C# entities, CRUD actions and stored procedure calls.",
+  "keywords": [
+    "sql server",
+    "reverse engineer",
+    "code generator",
+    ".NET",
+    "cross platform"
+  ],
   "license": "MIT",
   "main": "dist/bundles/reverse-sql.umd.js",
   "module": "dist/es5/reverse-sql.js",
@@ -28,7 +34,7 @@
   },
   "dependencies": {
     "@yellicode/core": "^1.1.3",
-    "@yellicode/csharp": "^1.7.2",
+    "@yellicode/csharp": "^1.8.0",
     "@yellicode/templating": "^1.5.1",
     "lodash": "^4.17.15",
     "mssql": "^4.3.2"

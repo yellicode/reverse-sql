@@ -3,7 +3,7 @@ import { SqlStoredProcedure } from '../model/sql-server-database';
 import { ClassDefinition, PropertyDefinition } from '@yellicode/csharp';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
-import { ReverseSqlOptions } from './reverse-sql-options';
+import { ReverseSqlOptions } from '../reverse-sql-options';
 import { TableResultSetBuilder } from './table-result-set-builder';
 import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from './class-definition-extensions';
 

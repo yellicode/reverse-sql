@@ -14,6 +14,7 @@
     },
     "exclude": [
         "dist/types", // avoid error TS5055: Cannot write file 'myfile.d.ts' https://github.com/Microsoft/TypeScript/issues/6046
-        "node_modules"
+        "node_modules",
+        "templates"
     ]
 }

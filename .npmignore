@@ -1,7 +1,6 @@
 .vscode/*
-docs
-examples
 src
+templates
 !dist/*/src
 tsconfig.json
 *.npmignore

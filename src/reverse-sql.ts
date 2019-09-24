@@ -1,4 +1,4 @@
-export * from './builder/reverse-sql-options';
+export * from './reverse-sql-options';
 export * from './builder/reverse-db-builder';
 export * from './builder/reverse-sql-class-builder';
 export * from './mapper/reverse-sql-object-name-provider';

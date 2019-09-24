@@ -1,24 +1,56 @@
-import { ReverseSqlObjectNameProvider } from '../reverse-sql';
 import { Logger } from '@yellicode/core';
+import { ReverseSqlObjectNameProvider } from './mapper/reverse-sql-object-name-provider';
 
-export enum BuilderObjecTypes {
-    None = 0,
+/**
+ * Enumerates all supported SQL-Server object types. This is a bitwise enumeration.
+ */
+export enum BuilderObjectTypes {
+    /**
+     * The enumeration is uninitialized.
+     */
+    None = 0,    
+    /**
+     * Generate CRUD methods and C# entities for tables.
+     */
     Tables = 1 << 0,
+    /**
+     * Generate C# entities for user-defined table types and use these as parameters for generated stored procedure calls. 
+     * If you exclude table types while you have included stored procedures that expect table-valued parameters as 
+     * input, the generated parameters will be of type `DataTable`.
+     */
     TableTypes = 1 << 1,
+    /**
+     * Generate stored procedure calls.
+     */
     StoredProcedures = 1 << 2,
+    /**
+     * Combines all the other options.
+     */
     All = Tables | TableTypes | StoredProcedures
 }
 
+/**
+ * Contains all reverse-engineering and code generation options.
+ */
 export interface ReverseSqlOptions {
     /**
-     * Indicates what type of objects to include. The default is BuilderObjecTypes.All.
+     * Indicates what type of objects to include. The default is BuilderObjectTypes.All.
      */
-    objectTypes?: BuilderObjecTypes;
+    objectTypes?: BuilderObjectTypes;
 
+    /**
+     * A callback function to be run for each stored-procedure. Return true if the stored-procedure must be included.
+     */
     storedProcedureFilter?: (schema: string, name: string) => boolean;
 
+    /**
+     * A callback function to be run for each table. Return true if the table must be included (meaning: CRUD methods will be generated).
+     */
     tableFilter?: (schema: string, name: string) => boolean;
 
+    /**
+     * A callback function to be run for each user-defined table type. Return true if the user-defined table type must be included.
+     */
     tableTypeFilter?: (schema: string, name: string) => boolean;
 
      /**

@@ -4,7 +4,7 @@ import { SqlStoredProcedure, SqlServerDatabase } from '../model/sql-server-datab
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
-import { ReverseSqlOptions, BuilderObjecTypes } from '../builder/reverse-sql-options';
+import { ReverseSqlOptions, BuilderObjectTypes } from '../reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
 import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-extensions';
 import { WhereBuilderWriter } from './where-builder.writer';

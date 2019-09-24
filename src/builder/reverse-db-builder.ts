@@ -1,5 +1,5 @@
 import * as sql from 'mssql';
-import { ReverseSqlOptions, BuilderObjecTypes } from './reverse-sql-options';
+import { ReverseSqlOptions, BuilderObjectTypes } from '../reverse-sql-options';
 import { SqlParameterDirection, SqlResultSetColumn, DbTable } from '../model/database';
 import { SqlServerDatabase, SqlServerParameter, SqlStoredProcedure } from '../model/sql-server-database';
 
@@ -31,10 +31,10 @@ export class ReverseDbBuilder {
         }
         else this.pool = poolOrConnectionString;
 
-        const objectTypes = this.options.objectTypes || BuilderObjecTypes.All;
-        this.includeTables = !!(objectTypes & BuilderObjecTypes.Tables);
-        this.includeTableTypes = !!(objectTypes & BuilderObjecTypes.TableTypes);
-        this.includeStoredProcedures = !!(objectTypes & BuilderObjecTypes.StoredProcedures);
+        const objectTypes = this.options.objectTypes || BuilderObjectTypes.All;
+        this.includeTables = !!(objectTypes & BuilderObjectTypes.Tables);
+        this.includeTableTypes = !!(objectTypes & BuilderObjectTypes.TableTypes);
+        this.includeStoredProcedures = !!(objectTypes & BuilderObjectTypes.StoredProcedures);
     }
 
     public build(): Promise<SqlServerDatabase> {
