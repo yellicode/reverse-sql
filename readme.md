@@ -2,7 +2,7 @@
 Reverse engineers an existing SQL-Server database and generates C# entities, CRUD actions and stored procedure calls. This generator is built as an extension to [Yellicode](https://www.yellicode.com/), a cross-platform code generator based on TypeScript and Node.js.
 
 ## Features
-* Generated code is cross-platform: the code will work in .NET Core as well as .NET Framework projects. The code only depends on a few namespaces, namely `System.Data.SqlClient` (which is part of NET Standard) and, if you need strongly-typed support for table types, `Microsoft.SqlServer.Server`.
+* Generated code is **cross-platform**: the code will work in .NET Core as well as .NET Framework projects. The code only depends on a few namespaces, namely `System.Data.SqlClient` (which is part of NET Standard) and, if you need strongly-typed support for table types, `Microsoft.SqlServer.Server`.
 * No dependency on any IDE.
 * Supports **Stored Procedures**: generates stored procedure calls and entities for corresponding result sets.
 * Generates entities for **User-Defined Table Types**: use strongly-typed entities instead of `DataTable`s when stored procedures expect a user-defined table type as parameter.
@@ -28,7 +28,7 @@ npm install @yellicode/reverse-sql --save-dev
 ```
 
 ## Getting started
-This package comes with two sample templates: a [basic template](https://github.com/yellicode/reverse-sql/templates/basic.template.ts) (generates a single C# file, uses all default options) and an [advanced one](https://github.com/yellicode/reverse-sql/templates/advanced.template.ts) (shows how to use most options and splits the output over multiple C# files).
+This package comes with two sample templates: a [basic template](https://github.com/yellicode/reverse-sql/blob/master/templates/basic.template.ts) (generates a single C# file, uses all default options) and an [advanced one](https://github.com/yellicode/reverse-sql/blob/master/templates/advanced.template.ts) (shows how to use most options and splits the output over multiple C# files).
 
 1. Download one of the sample templates to your working directory.
 2. In the template, update the `connectionString` variable with the connection string of your own database. 
