@@ -5,5 +5,5 @@ export default {
     name: '@yellicode/reverse-sql',
     file: 'dist/bundles/reverse-sql.umd.js'
   },
-  external: ['@yellicode/core', '@yellicode/csharp', '@yellicode/templating'] // https://github.com/rollup/rollup/wiki/Troubleshooting#treating-module-as-external-dependency
+  external: ['@yellicode/core', '@yellicode/csharp'] // https://github.com/rollup/rollup/wiki/Troubleshooting#treating-module-as-external-dependency
 }
