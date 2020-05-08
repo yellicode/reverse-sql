@@ -1,14 +1,14 @@
 import { CSharpWriter, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
 import { SqlServerQuery, SqlServerParameter } from '../model/sql-server-database';
 import { SqlParameterDirection } from '../model/database';
-import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { ReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
 
 export abstract class QueryMethodWriter {
 
     constructor(protected csharp: CSharpWriter, protected objectNameProvider: ReverseSqlObjectNameProvider, private connectionStringFieldName: string) {
-        
+
     }
 
     protected writeExecuteQueryMethod(
@@ -33,7 +33,7 @@ export abstract class QueryMethodWriter {
         const hasSingleRecordResultSet = hasResultSet && q.resultSets![0].hasSingleRecord;
         if (hasResultSet) {
             // Note: we do't support multiple result sets at this moment! If we would, the resultSetClassName would still be used,
-            // probably with nested IEnumerable<ResultSet1Class>.. IEnumerable<ResultSet2Class> classes.                
+            // probably with nested IEnumerable<ResultSet1Class>.. IEnumerable<ResultSet2Class> classes.
             method.returnTypeName = hasSingleRecordResultSet ? resultSetClassName! : `IEnumerable<${resultSetClassName}>`;
         }
         else {
@@ -45,7 +45,7 @@ export abstract class QueryMethodWriter {
 
         const methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
-            const objectTypeName = p.tableType ? 
+            const objectTypeName = p.tableType ?
                 `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.tableType)}>`:
                 p.objectTypeName; // already filled with a standard .NET type by ReverseDbBuilder
 
@@ -55,16 +55,16 @@ export abstract class QueryMethodWriter {
             };
             methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
             // We don't know if the SP parameter (or the related column, at this moment) is nullable, so allow every input parameter to be null
-            methodParameter.isNullable = p.isNullable && !p.isTableValued && SqlToCSharpTypeMapper.canBeNullable(methodParameter.typeName);
+            methodParameter.isNullable = p.isNullable && !p.isTableValued && CSharpReverseSqlTypeNameProvider.canBeNullable(methodParameter.typeName);
 
-            methodParameters.push(methodParameter);            
+            methodParameters.push(methodParameter);
             methodParametersBySqlName.set(p.name, methodParameter);
         });
 
         // Make output parameters show up as last
         method.parameters = methodParameters.sort((a, b) => { return (a.isOutput === b.isOutput) ? 0 : a.isOutput ? 1 : -1; });
 
-        // Write         
+        // Write
         this.csharp.writeMethodBlock(method, () => {
             writeCommandText('commandText', this.csharp);
             this.csharp.writeLine();
@@ -117,18 +117,18 @@ export abstract class QueryMethodWriter {
         const parameterName = minifyParamNames ? QueryMethodWriter.minifyParameterName(p) : p.name;
         const variableName = `${methodParameter.name}Parameter`;
         const sqlDbType = p.isTableValued ? 'Structured' : SystemDotDataNameMapper.getSqlDbType(p.sqlTypeName);
-        
+
         this.csharp.writeLine(`// ${p.name}`);
         if (methodParameter.isOutput) {
-            // Make a SqlParameter that will contain the output       
+            // Make a SqlParameter that will contain the output
             this.csharp.writeLine(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {Direction = ParameterDirection.Output};`);
             this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
             return;
         }
 
-        // The parameter is an input parameter       
+        // The parameter is an input parameter
         let valueSelector = methodParameter.isNullable ? `${methodParameter.name}.GetValueOrDefault()` : methodParameter.name;
-        if (p.tableType) {            
+        if (p.tableType) {
             const tableTypeClassName = this.objectNameProvider.getTableTypeClassName(p.tableType);
             // To send a table-valued parameter with no rows, use a null reference for the value instead.
             valueSelector = `${methodParameter.name} != null ? new ${tableTypeClassName}DataReader(${methodParameter.name}) : null`;
@@ -136,7 +136,7 @@ export abstract class QueryMethodWriter {
 
         this.csharp.writeIndent();
         // Initialize the parameter
-        this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);        
+        this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
         this.csharp.write(`Direction = ParameterDirection.Input, Value = ${valueSelector}`);
         if (p.tableType) {
             this.csharp.write(`, TypeName = "${p.tableType.schema}.${p.tableType.name}"`);
@@ -152,15 +152,15 @@ export abstract class QueryMethodWriter {
         }
         this.csharp.writeEndOfLine('};');
 
-        // Null check                
+        // Null check
         if (!p.isTableValued) { // Table-valued parameters cannot be DBNull, we pass a null reference instead (see above)
             if (methodParameter.isNullable) {
                 this.csharp.writeLine(`if (!${methodParameter.name}.HasValue) ${variableName}.Value = DBNull.Value;`);
             }
             else {
                 this.csharp.writeLine(`if (${variableName}.Value == null) ${variableName}.Value = DBNull.Value;`);
-            }            
-        }        
+            }
+        }
         this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
     }
 

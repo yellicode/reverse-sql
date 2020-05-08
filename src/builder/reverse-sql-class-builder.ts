@@ -2,24 +2,27 @@ import { SqlResultSetColumn, DbTable } from '../model/database';
 import { SqlStoredProcedure } from '../model/sql-server-database';
 import { ClassDefinition, PropertyDefinition } from '@yellicode/csharp';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
-import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { ReverseSqlOptions } from '../reverse-sql-options';
 import { TableResultSetBuilder } from './table-result-set-builder';
 import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from './class-definition-extensions';
+import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
 
 /**
  * Builds C# class definitions for objects in a database.
  */
 export class ReverseSqlClassBuilder {
     private objectNameProvider: ReverseSqlObjectNameProvider;
+    private typeNameProvider: ReverseSqlTypeNameProvider;
 
     constructor(options?: ReverseSqlOptions) {
         const opts = options || {};
         this.objectNameProvider = opts.objectNameProvider || new DefaultReverseSqlObjectNameProvider(opts.includeSchema || false);
+        this.typeNameProvider = opts.typeNameProvider || new CSharpReverseSqlTypeNameProvider();
     }
 
     public buildStoredProcResultSetClasses(storedProcedures: SqlStoredProcedure[]): ClassDefinition[] {
-        // Build C# class and property definitions    
+        // Build C# class and property definitions
         const classDefinitions: ClassDefinitionWithResultSet[] = [];
         storedProcedures.forEach((sp) => {
             // We only support one result set (using _describe_first_result_set)
@@ -34,7 +37,7 @@ export class ReverseSqlClassBuilder {
                 const propertyName = this.objectNameProvider.getColumnPropertyName(col);
 
                 const property: PropertyDefinition = { name: propertyName, typeName: col.objectTypeName, accessModifier: 'public' };
-                property.isNullable = col.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.objectTypeName);
+                property.isNullable = col.isNullable && CSharpReverseSqlTypeNameProvider.canBeNullable(col.objectTypeName);
 
                 classDefinition.properties!.push(property);
             });
@@ -53,13 +56,13 @@ export class ReverseSqlClassBuilder {
             table.ownColumns.forEach((tc, index) => {
                 const propertyName = this.objectNameProvider.getColumnPropertyName({ name: tc.name, ordinal: index });
                 // Also build a SqlResultSetColumn with mapping information
-                const col = TableResultSetBuilder.buildResultSetColumn(tc, index);
+                const col = TableResultSetBuilder.buildResultSetColumn(tc, index, this.typeNameProvider.getColumnObjectTypeName(tc.sqlTypeName, table.name, tc.name));
                 const property: PropertyDefinition = {
                     name: propertyName,
                     typeName: col.objectTypeName,
                     accessModifier: 'public'
                 };
-                property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(col.objectTypeName);
+                property.isNullable = tc.isNullable && CSharpReverseSqlTypeNameProvider.canBeNullable(col.objectTypeName);
                 resultSetColumns.push(col);
                 classProperties.push(property);
             });
@@ -83,13 +86,13 @@ export class ReverseSqlClassBuilder {
 
             tt.ownColumns.forEach((tc, index) => {
                 const propertyName = this.objectNameProvider.getColumnPropertyName({ name: tc.name, ordinal: index });
-                const typeName = SqlToCSharpTypeMapper.getCSharpTypeName(tc.sqlTypeName) || 'object';
+                const typeName = this.typeNameProvider.getColumnObjectTypeName(tc.sqlTypeName, tt.name, tc.name) || 'object';
                 const property: PropertyDefinition = {
                     name: propertyName,
                     typeName: typeName,
                     accessModifier: 'public'
                 };
-                property.isNullable = tc.isNullable && SqlToCSharpTypeMapper.canBeNullable(typeName);
+                property.isNullable = tc.isNullable && CSharpReverseSqlTypeNameProvider.canBeNullable(typeName);
                 classProperties.push(property);
             });
 

@@ -1,9 +1,10 @@
 import * as csharpTypes from './csharp-types';
+import { ReverseSqlTypeNameProvider } from './reverse-sql-type-name-provider';
 
-export class SqlToCSharpTypeMapper {
+export class CSharpReverseSqlTypeNameProvider implements ReverseSqlTypeNameProvider {
 
     public static canBeNullable(csTypeName: string): boolean {
-        switch (csTypeName) {            
+        switch (csTypeName) {
             // the following cannot be nullable:
             case 'string':
             case 'System.String':
@@ -16,21 +17,21 @@ export class SqlToCSharpTypeMapper {
             case 'System.Data.Entity.Spatial.DbGeometry':
                 return false;
             default:
-                return true;            
-        }        
+                return true;
+        }
     }
 
-    public static getCSharpTypeName(sqlType: string | null): string | null {
+    protected getObjectTypeName(sqlType: string | null): string | null {
         if (!sqlType)
             return null;
 
-        const lower = sqlType.toLowerCase();   
+        const lower = sqlType.toLowerCase();
 
         switch (lower) {
             case 'nvarchar':
             case 'varchar':
             case 'xml':
-                return csharpTypes.STRING;            
+                return csharpTypes.STRING;
             case 'hierarchyid':
                 return csharpTypes.HIERARCHYID;
             case 'bigint':
@@ -71,12 +72,20 @@ export class SqlToCSharpTypeMapper {
             case 'varbinary(max)':
             case 'timestamp':
                 return csharpTypes.BYTE_ARRAY;
-            case 'geography':                
+            case 'geography':
                 return csharpTypes.DBGEOGRAPHY;
-            case 'geometry':                
+            case 'geometry':
                 return csharpTypes.DBGEOMETRY;
             default:
                 return null;
         }
+    }
+
+    public getColumnObjectTypeName(sqlType: string | null, dbObjectName: string | null, columnName: string | null): string | null {
+        return this.getObjectTypeName(sqlType);
+    }
+
+    public getParameterObjectTypeName(sqlType: string | null, parameterName: string, dbObjectName: string | null, columnName: string | null): string | null {
+        return this.getObjectTypeName(sqlType);
     }
 }

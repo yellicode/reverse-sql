@@ -2,7 +2,7 @@ import * as csharpTypes from './csharp-types';
 
 export class SystemDotDataNameMapper {
     /**
-     * Gets the SqlDbType enumeration value that corresponds to the provided sql type name.     
+     * Gets the SqlDbType enumeration value that corresponds to the provided sql type name.
      */
     public static getSqlDbType(sqlType: string): string {
         switch (sqlType) {
@@ -76,16 +76,18 @@ export class SystemDotDataNameMapper {
                 throw `Could not determine the SqlDbType that corresponds to SQL type ${sqlType}.`;
         }
     }
-    
-    public static getDataRecordGetValueMethod(csharpTypeName: string): string {
-        return 'Get'+SystemDotDataNameMapper.mapTypeName(csharpTypeName);
-    }    
 
-    public static getDataRecordSetValueMethod(csharpTypeName: string): string {
-        return 'Set'+SystemDotDataNameMapper.mapTypeName(csharpTypeName);
+    public static getDataRecordGetValueMethod(csharpTypeName: string): string | null {
+        const typeName = SystemDotDataNameMapper.mapTypeName(csharpTypeName);
+        return typeName ? `Get${typeName}`: null;
     }
 
-    private static mapTypeName(csharpTypeName: string): string {
+    public static getDataRecordSetValueMethod(csharpTypeName: string): string | null {
+        const typeName = SystemDotDataNameMapper.mapTypeName(csharpTypeName);
+        return typeName ? `Set${typeName}`: null;
+    }
+
+    private static mapTypeName(csharpTypeName: string): string | null {
         switch (csharpTypeName) {
             case csharpTypes.STRING:
                 return 'String';
@@ -98,7 +100,7 @@ export class SystemDotDataNameMapper {
             case csharpTypes.GUID:
                 return 'Guid';
             case csharpTypes.DATETIME:
-                return 'DateTime';            
+                return 'DateTime';
             case csharpTypes.DOUBLE:
                 return 'Double';
             case csharpTypes.FLOAT:
@@ -111,7 +113,7 @@ export class SystemDotDataNameMapper {
                 return 'Bytes';
             case csharpTypes.BOOL:
                 return 'Boolean';
-            case csharpTypes.DBGEOGRAPHY:                
+            case csharpTypes.DBGEOGRAPHY:
             case csharpTypes.DBGEOMETRY:
             case csharpTypes.HIERARCHYID:
             case csharpTypes.DATETIMEOFFSET:
@@ -119,7 +121,7 @@ export class SystemDotDataNameMapper {
             case csharpTypes.TIMESPAN:
                 return 'TimeSpan'; // SqlDataReader only
             default:
-                return 'Value';
+                return null;
         }
     }
 }

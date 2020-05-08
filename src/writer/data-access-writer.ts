@@ -2,7 +2,7 @@ import { CSharpWriter, ClassDefinition, MethodDefinition, ParameterDefinition } 
 import { SqlResultSet, DbTable, Database } from '../model/database';
 import { SqlStoredProcedure, SqlServerDatabase } from '../model/sql-server-database';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
-import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
 import { ReverseSqlOptions, BuilderObjectTypes } from '../reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
@@ -11,15 +11,17 @@ import { WhereBuilderWriter } from './where-builder.writer';
 import { TableQueryMethodWriter } from './table-query-method-writer';
 import { StoredProcedureMethodWriter } from './stored-procedure-method-writer';
 import { ReverseSqlClassBuilder } from '../builder/reverse-sql-class-builder';
+import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
 
 const connectionStringFieldName = '_dbConnectionString';
 
 export class DataAccessWriter {
     private objectNameProvider: ReverseSqlObjectNameProvider;
+    private typeNameProvider: ReverseSqlTypeNameProvider;
     private tableQueryMethodWriter: TableQueryMethodWriter;
     private storedProcedureMethodWriter: StoredProcedureMethodWriter;
     private classBuilder: ReverseSqlClassBuilder;
-    private options: ReverseSqlOptions;    
+    private options: ReverseSqlOptions;
     private logger: Logger;
 
     constructor(private csharp: CSharpWriter, private namespace: string, options?: ReverseSqlOptions) {
@@ -28,10 +30,11 @@ export class DataAccessWriter {
         this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);
 
         this.objectNameProvider = this.options.objectNameProvider || new DefaultReverseSqlObjectNameProvider(this.options.includeSchema || false);
-        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, connectionStringFieldName);
+        this.typeNameProvider = this.options.typeNameProvider || new CSharpReverseSqlTypeNameProvider();
+        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, this.typeNameProvider, connectionStringFieldName);
         this.storedProcedureMethodWriter = new StoredProcedureMethodWriter(csharp, this.objectNameProvider, connectionStringFieldName);
         this.classBuilder = new ReverseSqlClassBuilder(this.options);
-    }   
+    }
 
     // #region public methods
     public writeTableClasses(db: Database, includeUsingsAndNamespace?: boolean): void;
@@ -55,11 +58,11 @@ export class DataAccessWriter {
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
                 writeFunc(this);
-            });            
+            });
         }
         else {
             writeFunc(this);
-        }        
+        }
     }
 
     public writeTableTypeClasses(db: SqlServerDatabase, includeUsingsAndNamespace?: boolean): void;
@@ -70,7 +73,7 @@ export class DataAccessWriter {
 
         const writeFunc = (writer: DataAccessWriter) => {
             writer.csharp.writeLine('#region Table Type classes');
-            writer.writeClassesFromDefinitions(classDefinitions); 
+            writer.writeClassesFromDefinitions(classDefinitions);
             writer.csharp.writeLine('#endregion Table Type classes');
             writer.csharp.writeLine();
             writer.csharp.writeLine('#region Table Type data readers');
@@ -78,17 +81,17 @@ export class DataAccessWriter {
             writer.csharp.writeLine('#endregion Table Type data readers');
             writer.csharp.writeLine();
         }
-        
+
         if (includeUsingsAndNamespace) {
             this.csharp.writeUsingDirectives('System', 'System.Collections', 'System.Collections.Generic', 'System.Data', 'Microsoft.SqlServer.Server');
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
                 writeFunc(this);
-            });            
+            });
         }
         else {
             writeFunc(this);
-        }        
+        }
     }
 
     public writeStoredProcResultSetClasses(db: SqlServerDatabase,  includeUsingsAndNamespace?: boolean): void;
@@ -97,7 +100,7 @@ export class DataAccessWriter {
         const sp = Array.isArray(data) ? data : data.storedProcedures;
         const classDefinitions = this.classBuilder.buildStoredProcResultSetClasses(sp);
 
-        const writeFunc = (writer: DataAccessWriter) => {            
+        const writeFunc = (writer: DataAccessWriter) => {
             this.csharp.writeLine('#region Stored procedure result sets');
             writer.writeClassesFromDefinitions(classDefinitions);
             this.csharp.writeLine('#endregion Stored procedure result sets');
@@ -113,15 +116,15 @@ export class DataAccessWriter {
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
                 writeFunc(this);
-            });            
+            });
         }
         else {
             writeFunc(this);
-        }     
+        }
     }
 
     public writeDatabaseClass(database: SqlServerDatabase, dbClassName: string, includeUsingsAndNamespace: boolean = false): void {
-        if (includeUsingsAndNamespace) {            
+        if (includeUsingsAndNamespace) {
             this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data', 'System.Data.SqlClient');
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
@@ -135,7 +138,7 @@ export class DataAccessWriter {
 
     private writeDatabaseClassInternal(database: SqlServerDatabase, dbClassName: string): void {
         // Database class
-        this.csharp.writeLine(`#region ${dbClassName} class`); 
+        this.csharp.writeLine(`#region ${dbClassName} class`);
         this.csharp.writeClassBlock({ name: dbClassName, accessModifier: 'public', isPartial: true }, () => {
             // Fields
             this.csharp.writeLine(`private readonly string ${connectionStringFieldName};`);
@@ -169,7 +172,7 @@ export class DataAccessWriter {
             WhereBuilderWriter.write(this.csharp);
             this.csharp.writeLine('#endregion Infrastructure');
         });
-        this.csharp.writeLine(`#endregion ${dbClassName} class`); 
+        this.csharp.writeLine(`#endregion ${dbClassName} class`);
     }
 
     public writeAll(db: SqlServerDatabase, dbClassName: string): void {
@@ -180,10 +183,10 @@ export class DataAccessWriter {
         this.csharp.writeUsingDirectives(...usingDirectives);
         this.csharp.writeLine();
         this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
-            if (db.storedProcedures && db.storedProcedures.length) {                                
-                this.writeStoredProcResultSetClasses(db);                
+            if (db.storedProcedures && db.storedProcedures.length) {
+                this.writeStoredProcResultSetClasses(db);
             }
-            
+
             if (db.tables && db.tables.length) {
                 this.writeTableClasses(db);
             }
@@ -206,8 +209,8 @@ export class DataAccessWriter {
 
     //public writeResultSetMappers()
 
-    // #endregion public methods    
- 
+    // #endregion public methods
+
     private writeResultSetMappers(resultSetClasses: ClassDefinition[]): void {
         resultSetClasses.forEach(cd => {
             this.writeResultSetMapper(cd, (cd as ClassDefinitionWithResultSet)._resultSet);
@@ -236,17 +239,22 @@ export class DataAccessWriter {
                 resultSet.columns.forEach(c => {
                     this.csharp.writeLine(`if (!dataRecord.IsDBNull(${c.ordinal}))`);
                     this.csharp.writeCodeBlock(() => {
+                        // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)
                         const propertyName = this.objectNameProvider.getColumnPropertyName(c);
                         const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
-                        // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)                        
-                        this.csharp.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(${c.ordinal});`);
+                        if (getValueMethod)
+                            this.csharp.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(${c.ordinal});`);
+                        else {
+                            // The column is mapped to an unknown type (most likely a custom enum). Cast the value.
+                            this.csharp.writeLine(`result.${propertyName} = (${c.objectTypeName}) dataRecord.GetValue(${c.ordinal});`);
+                        }
                     });
                 });
                 this.csharp.writeLine('return result;');
             });
         });
     }
-    
+
     private writeTableTypeDataReader(classDefinition: ClassDefinition, tableType: DbTable): void {
         if (!tableType) {
             this.logger.verbose(`ClassDefinition '${classDefinition.name}' does not have a related table type.`);
@@ -282,7 +290,7 @@ export class DataAccessWriter {
                 this.csharp.increaseIndent();
                 tableType.ownColumns.forEach((c, i) => {
                     const sqlDbType = SystemDotDataNameMapper.getSqlDbType(c.sqlTypeName);
-                    // Only the following are allowed to be passed to the constructor as dbType: Bit, BigInt, DateTime, Decimal, Float, Int, Money, Numeric, SmallDateTime, 
+                    // Only the following are allowed to be passed to the constructor as dbType: Bit, BigInt, DateTime, Decimal, Float, Int, Money, Numeric, SmallDateTime,
                     // SmallInt, SmallMoney, TimeStamp, TinyInt, UniqueIdentifier, Xml. See https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.server.sqlmetadata.-ctor?view=netframework-4.8
                     this.csharp.writeIndent();
                     this.csharp.write(`new SqlMetaData("${c.name}", SqlDbType.${sqlDbType}`);
@@ -302,9 +310,14 @@ export class DataAccessWriter {
                 this.csharp.writeCodeBlock(() => {
                     tableType.ownColumns.forEach((c, i) => {
                         const propertyName = this.objectNameProvider.getColumnPropertyName({ name: c.name, ordinal: i });
-                        const objectTypeName = SqlToCSharpTypeMapper.getCSharpTypeName(c.sqlTypeName) || 'object';
+                        const objectTypeName = this.typeNameProvider.getColumnObjectTypeName(c.sqlTypeName, c.table.name, c.name) || 'object';
                         const setValueMethod = SystemDotDataNameMapper.getDataRecordSetValueMethod(objectTypeName);
-                        this.csharp.writeLine(`record.${setValueMethod}(${i}, item.${propertyName});`);
+                        if (setValueMethod) {
+                            this.csharp.writeLine(`record.${setValueMethod}(${i}, item.${propertyName});`);
+                        }
+                        else
+                            this.csharp.writeLine(`record.SetValue(${i}, item.${propertyName});`);
+
                     });
                     this.csharp.writeLine('yield return record;');
                 });
@@ -333,7 +346,7 @@ export class DataAccessWriter {
     }
 
     // #region queries
-    
+
     private writeTableQueryMethods(tables: DbTable[]): void {
         tables.forEach(t => {
             // const primaryKey = t.ownColumns.find(c => c.isPrimaryKey); // we could use the PKs, but this will result in a confusing method signature if there are multiple PKs
@@ -377,5 +390,5 @@ export class DataAccessWriter {
         });
     }
 
-    // #endregion queries     
+    // #endregion queries
 }

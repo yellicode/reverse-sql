@@ -6,8 +6,9 @@ import { SqlServerDatabase, SqlServerParameter, SqlStoredProcedure } from '../mo
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
 import { storedProceduresSql, parametersSql, tableColumnsSql, columnConstraintsSql, tableTypeColumnsSql } from './queries/query-statements';
 import { StoredProceduresSqlResult, ParametersSqlResult, ParameterMode, ResultSetSqlResult, ColumnsSqlResult, ColumnConstraintsSqlResult } from './queries/query-interfaces';
-import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { TableBuilder } from './table-builder';
+import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
 
 export class ReverseDbBuilder {
     private pool: sql.ConnectionPool;
@@ -16,6 +17,7 @@ export class ReverseDbBuilder {
     private includeTableTypes: boolean;
     private includeStoredProcedures: boolean;
     private logger: Logger;
+    private typeNameProvider: ReverseSqlTypeNameProvider;
 
     constructor(connectionString: string, options?: ReverseSqlOptions);
     constructor(connectionPool: sql.ConnectionPool, options?: ReverseSqlOptions);
@@ -35,6 +37,7 @@ export class ReverseDbBuilder {
         this.includeTables = !!(objectTypes & BuilderObjectTypes.Tables);
         this.includeTableTypes = !!(objectTypes & BuilderObjectTypes.TableTypes);
         this.includeStoredProcedures = !!(objectTypes & BuilderObjectTypes.StoredProcedures);
+        this.typeNameProvider = this.options.typeNameProvider || new CSharpReverseSqlTypeNameProvider();
     }
 
     public build(): Promise<SqlServerDatabase> {
@@ -187,7 +190,7 @@ export class ReverseDbBuilder {
             })
         );
 
-        // 3. Wait for table types        
+        // 3. Wait for table types
         promises.push(tableTypesPromise.then((tt) => {
             tableTypes = tt;
         }));
@@ -205,7 +208,7 @@ export class ReverseDbBuilder {
                 if (!this.shouldIncludedStoredProcedure(o.SPECIFIC_SCHEMA, o.SPECIFIC_NAME))
                     return;
 
-                const proc: SqlStoredProcedure = {                   
+                const proc: SqlStoredProcedure = {
                     name: o.SPECIFIC_NAME,
                     schema: o.SPECIFIC_SCHEMA,
                     parameters: this.getParametersForStoredProcedure(parametersRecordSet, o, tableTypes),
@@ -216,8 +219,8 @@ export class ReverseDbBuilder {
             });
             return storedProcs;
         }).then((storedProcs => {
-            // 3: Get the result set(s)         
-            // console.log(`Found ${storedProcs.length} stored procedures. Discovering result sets...`);            
+            // 3: Get the result set(s)
+            // console.log(`Found ${storedProcs.length} stored procedures. Discovering result sets...`);
             return this.populateStoredProcResultSets(storedProcs).then(() => {
                 return storedProcs;
             });
@@ -231,7 +234,7 @@ export class ReverseDbBuilder {
         storedProcs.forEach(sp => {
 
             const sql = `SELECT column_ordinal, name, TYPE_NAME(system_type_id) type_name, source_table, source_column, is_nullable, is_hidden FROM sys.dm_exec_describe_first_result_set('EXEC [${sp.schema}].[${sp.name}]', NULL, 1)`;
-            // console.log(`Retrieving result set of ${sp.name}.`);            
+            // console.log(`Retrieving result set of ${sp.name}.`);
             promises.push(this.pool.request().query(sql).then((results: sql.IResult<ResultSetSqlResult>) => {
                 const resultcolumns = results.recordsets[0];
                 if (!resultcolumns || !resultcolumns.length)
@@ -247,10 +250,11 @@ export class ReverseDbBuilder {
                         ordinal: ordinal - 1,
                         name: c.name || undefined,
                         // sourceTable: c.source_table,
-                        // sourceColumn: c.source_column,                                                
-                        isNullable: c.is_nullable,                        
+                        // sourceColumn: c.source_column,
+                        isNullable: c.is_nullable,
                         sqlTypeName: c.type_name,
-                        objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object'
+                        // objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.type_name) || 'object'
+                        objectTypeName: this.typeNameProvider.getColumnObjectTypeName(c.type_name, sp.name, c.name) || 'object'
                     }
                     resultSetColumns.push(col);
                 });
@@ -286,20 +290,20 @@ export class ReverseDbBuilder {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE_NAME;
                 const sqlTypeName = isTableType ? p.USER_DEFINED_TYPE_NAME : p.DATA_TYPE;
                 // Default to DataTable if isTableType. We can override this when we generate the actual table type classes.
-                const objectTypeName = isTableType ? 'DataTable' : SqlToCSharpTypeMapper.getCSharpTypeName(sqlTypeName) || 'object';
-                const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell              
+                const objectTypeName = isTableType ? 'DataTable' : this.typeNameProvider.getParameterObjectTypeName(sqlTypeName, storedProcedure.SPECIFIC_NAME, p.PARAMETER_NAME, null) || 'object';
+                const isNullable = true; // we just don't know because INFORMATION_SCHEMA.PARAMETERS doesn't tell
                 const parameter: SqlServerParameter = {
                     // SqlParameter
                     name: p.PARAMETER_NAME, // includes @
-                    index: index,                    
-                    isIdentity: false,                    
-                    objectTypeName: objectTypeName,                    
+                    index: index,
+                    isIdentity: false,
+                    objectTypeName: objectTypeName,
                     columnName: null,
                     sqlTypeName: sqlTypeName!,
                     length: p.CHARACTER_MAXIMUM_LENGTH || null,
                     precision: p.NUMERIC_PRECISION || null,
                     scale: p.NUMERIC_SCALE || null,
-                    direction: this.parseParameterMode(p.PARAMETER_MODE, p.PARAMETER_NAME),                    
+                    direction: this.parseParameterMode(p.PARAMETER_MODE, p.PARAMETER_NAME),
                     isReadOnly: isTableType,
                     isNullable: isNullable,
                     // SqlServerParameter only

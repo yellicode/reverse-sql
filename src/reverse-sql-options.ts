@@ -1,5 +1,6 @@
 import { Logger } from '@yellicode/core';
 import { ReverseSqlObjectNameProvider } from './mapper/reverse-sql-object-name-provider';
+import { ReverseSqlTypeNameProvider } from './mapper/reverse-sql-type-name-provider';
 
 /**
  * Enumerates all supported SQL-Server object types. This is a bitwise enumeration.
@@ -8,14 +9,14 @@ export enum BuilderObjectTypes {
     /**
      * The enumeration is uninitialized.
      */
-    None = 0,    
+    None = 0,
     /**
      * Generate CRUD methods and C# entities for tables.
      */
     Tables = 1 << 0,
     /**
-     * Generate C# entities for user-defined table types and use these as parameters for generated stored procedure calls. 
-     * If you exclude table types while you have included stored procedures that expect table-valued parameters as 
+     * Generate C# entities for user-defined table types and use these as parameters for generated stored procedure calls.
+     * If you exclude table types while you have included stored procedures that expect table-valued parameters as
      * input, the generated parameters will be of type `DataTable`.
      */
     TableTypes = 1 << 1,
@@ -58,12 +59,17 @@ export interface ReverseSqlOptions {
      * The default value is false.
      */
     includeSchema?: boolean;
-    
+
     /**
      * Sets a custom object name provider.
      */
     objectNameProvider?: ReverseSqlObjectNameProvider;
-   
+
+    /**
+     * Sets a custom type name provider.
+     */
+    typeNameProvider?: ReverseSqlTypeNameProvider;
+
     /**
      * When provided, returns a boolan value indicating whether an INSERT method must be generated for the
      * specified table.

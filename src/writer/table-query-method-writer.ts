@@ -6,10 +6,17 @@ import { SqlServerQuery, SqlServerParameter } from '../model/sql-server-database
 
 import { SqlServerParameterWithColumn } from '../builder/sql-parameter-with-column';
 import { TableResultSetBuilder } from '../builder/table-result-set-builder';
-import { SqlToCSharpTypeMapper } from '../mapper/sql-to-csharp-type-mapper';
+import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { QueryMethodWriter } from './query-method-writer';
+import { ReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
+import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
 
 export class TableQueryMethodWriter extends QueryMethodWriter {
+
+    constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, connectionStringFieldName: string) {
+        super(csharp, objectNameProvider, connectionStringFieldName)
+
+    }
     public writeTableInsertMethods(table: DbTable): void {
         const parameters: SqlServerParameterWithColumn[] = table.ownColumns
             .filter(c => !c.hasDefaultValue) // let the database handle default values
@@ -142,7 +149,11 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             return;
         }
 
-        const resultSet: SqlResultSet = { hasSingleRecord: true, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
+        const resultSet: SqlResultSet = {
+                hasSingleRecord: true,
+                columns: table.ownColumns.map((c, index) =>
+                    TableResultSetBuilder.buildResultSetColumn(c, index, this.typeNameProvider.getColumnObjectTypeName(c.sqlTypeName, table.name, c.name))) };
+
         const query: SqlServerQuery = { parameters: whereParameters, resultSets: [resultSet] };
 
         const methodName = this.objectNameProvider.getTableSelectByPrimaryKeyMethodName(table);
@@ -183,9 +194,13 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         this.csharp.decreaseIndent();
         this.csharp.writeLine('};');
 
-        // Write the method        
+        // Write the method
         this.csharp.writeLine();
-        const resultSet: SqlResultSet = { hasSingleRecord: false, columns: table.ownColumns.map((c, index) => TableResultSetBuilder.buildResultSetColumn(c, index)) };
+        const resultSet: SqlResultSet = {
+                hasSingleRecord: false,
+                columns: table.ownColumns.map((c, index) =>
+                TableResultSetBuilder.buildResultSetColumn(c, index, this.typeNameProvider.getColumnObjectTypeName(c.sqlTypeName, table.name, c.name)))
+            };
         const query: SqlServerQuery = { parameters: [], resultSets: [resultSet] };
 
         const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>` };
@@ -225,9 +240,10 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
     }
 
     private buildSqlParameterFromColumn(c: DbColumn, index: number, useIdentityAsOutput: boolean = false): SqlServerParameterWithColumn {
+        const paramName = `@${c.name}`;
         const parameter: SqlServerParameterWithColumn = {
             _column: c,
-            name: `@${c.name}`,
+            name: paramName,
             index: index,
             isIdentity: c.isIdentity,
             sqlTypeName: c.sqlTypeName,
@@ -236,7 +252,8 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             scale: c.scale,
             length: c.length,
             direction: (c.isIdentity && useIdentityAsOutput) ? SqlParameterDirection.Output : SqlParameterDirection.Input,
-            objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.sqlTypeName) || 'object',
+            // objectTypeName: SqlToCSharpTypeMapper.getCSharpTypeName(c.sqlTypeName) || 'object',
+            objectTypeName: this.typeNameProvider.getParameterObjectTypeName(c.sqlTypeName, paramName, c.table.name, c.name) || 'object',
             isReadOnly: c.isReadOnly,
             isNullable: c.isNullable,
             isTableValued: false,
