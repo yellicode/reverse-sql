@@ -1,6 +1,6 @@
 import { CSharpWriter, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
 import { SqlServerQuery, SqlServerParameter } from '../model/sql-server-database';
-import { SqlParameterDirection } from '../model/database';
+import { SqlParameterDirection, SqlParameter } from '../model/database';
 import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { ReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
@@ -15,10 +15,12 @@ export abstract class QueryMethodWriter {
         methodNameOrDefinition: string | MethodDefinition,
         resultSetClassName: string | null,
         q: SqlServerQuery,
+        fillParametersFromPropertiesOf: string | null,
         commandType: 'StoredProcedure' | 'Text',
         minifyParamNames: boolean,
         writeCommandText: (commandTextVariable: string, csharp: CSharpWriter) => void,
-        beforeWriteCommandParameters?: (commandVariable: string, csharp: CSharpWriter) => void
+        beforeWriteCommandParameters?: (commandVariable: string, csharp: CSharpWriter) => void,
+        inputParameterCondition?: (p: SqlParameter) => string | null
     ): void {
 
         let method: MethodDefinition;
@@ -46,18 +48,25 @@ export abstract class QueryMethodWriter {
         const methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
             const objectTypeName = p.tableType ?
-                `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.tableType)}>`:
+                `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.tableType)}>` :
                 p.objectTypeName; // already filled with a standard .NET type by ReverseDbBuilder
 
             const methodParameter: ParameterDefinition = {
-                name: this.objectNameProvider.getParameterName(p),
+                name: '', // filled below
                 typeName: objectTypeName
             };
             methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
             // We don't know if the SP parameter (or the related column, at this moment) is nullable, so allow every input parameter to be null
             methodParameter.isNullable = p.isNullable && !p.isTableValued && CSharpReverseSqlTypeNameProvider.canBeNullable(methodParameter.typeName);
-
-            methodParameters.push(methodParameter);
+            if (fillParametersFromPropertiesOf) {
+                const propertyName = this.objectNameProvider.getColumnPropertyName({ name: p.columnName!, ordinal: p.index });
+                methodParameter.name = `${fillParametersFromPropertiesOf}.${propertyName}`;
+                methodParametersBySqlName.set(p.name, methodParameter); // reuse this parameter
+            }
+            else {
+                methodParameter.name = this.objectNameProvider.getParameterName(p);
+                methodParameters.push(methodParameter); // add a new parameter to the method
+            }
             methodParametersBySqlName.set(p.name, methodParameter);
         });
 
@@ -75,7 +84,20 @@ export abstract class QueryMethodWriter {
                     beforeWriteCommandParameters('command', this.csharp);
 
                 q.parameters.forEach(p => {
-                    this.writeCommandParameter(p, methodParametersBySqlName, minifyParamNames);
+                    const condition = p.direction === SqlParameterDirection.Input && inputParameterCondition ?
+                        inputParameterCondition(p) :
+                        null;
+
+                    if (condition) {
+                        // Wrap the parameter creation in a "if" (e.g. if (columns.HasFlag(UserColumns.CreatedOn)))
+                        this.csharp.writeLine(`if (${condition})`)
+                            .writeCodeBlock(() => {
+                                this.writeCommandParameter(p, methodParametersBySqlName, minifyParamNames);
+                            })
+                    }
+                    else {
+                        this.writeCommandParameter(p, methodParametersBySqlName, minifyParamNames);
+                    }
                     this.csharp.writeLine();
                 });
                 this.csharp.writeLine('// Execute');
@@ -103,7 +125,8 @@ export abstract class QueryMethodWriter {
                         return;
                     }
                     const methodParameter = methodParametersBySqlName.get(p.name)!;
-                    this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${methodParameter.name}Parameter.Value;`);
+                    const variableName = `p${p.index}`;
+                    this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${variableName}.Value;`);
                 })
                 if (hasSingleRecordResultSet) {
                     this.csharp.writeLine('return record;');
@@ -115,13 +138,14 @@ export abstract class QueryMethodWriter {
     private writeCommandParameter(p: SqlServerParameter, methodParametersBySqlName: Map<string, ParameterDefinition>, minifyParamNames: boolean): void {
         const methodParameter = methodParametersBySqlName.get(p.name)!;
         const parameterName = minifyParamNames ? QueryMethodWriter.minifyParameterName(p) : p.name;
-        const variableName = `${methodParameter.name}Parameter`;
+        // const variableName = `${methodParameter.name}Parameter`; / /doesn't work anymore, because methodParameter.name can also be 'myTableClass.SomeProperty'
+        const variableName = `p${p.index}`;
         const sqlDbType = p.isTableValued ? 'Structured' : SystemDotDataNameMapper.getSqlDbType(p.sqlTypeName);
 
         this.csharp.writeLine(`// ${p.name}`);
         if (methodParameter.isOutput) {
             // Make a SqlParameter that will contain the output
-            this.csharp.writeLine(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {Direction = ParameterDirection.Output};`);
+            this.csharp.writeLine(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) { Direction = ParameterDirection.Output };`);
             this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
             return;
         }
@@ -137,7 +161,7 @@ export abstract class QueryMethodWriter {
         this.csharp.writeIndent();
         // Initialize the parameter
         this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
-        this.csharp.write(`Direction = ParameterDirection.Input, Value = ${valueSelector}`);
+        this.csharp.write(` Direction = ParameterDirection.Input, Value = ${valueSelector}`);
         if (p.tableType) {
             this.csharp.write(`, TypeName = "${p.tableType.schema}.${p.tableType.name}"`);
         }
@@ -150,7 +174,7 @@ export abstract class QueryMethodWriter {
         if (p.length) {
             this.csharp.write(`, Size = ${p.length}`);
         }
-        this.csharp.writeEndOfLine('};');
+        this.csharp.writeEndOfLine(' };');
 
         // Null check
         if (!p.isTableValued) { // Table-valued parameters cannot be DBNull, we pass a null reference instead (see above)

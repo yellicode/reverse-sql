@@ -5,7 +5,7 @@ export class CSharpReverseSqlTypeNameProvider implements ReverseSqlTypeNameProvi
 
     public static canBeNullable(csTypeName: string): boolean {
         switch (csTypeName) {
-            // the following cannot be nullable:
+            // the following can NOT be nullable:
             case 'string':
             case 'System.String':
             case 'object':
