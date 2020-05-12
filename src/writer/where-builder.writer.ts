@@ -1,10 +1,10 @@
 /**
- * Generates a WhereBuilder class, based on the following implementation: 
+ * Generates a WhereBuilder class, based on the following implementation:
  *  http://ryanohs.com/2016/04/generating-sql-from-expression-trees-part-2/
- *  Modifications: 
+ *  Modifications:
  *  - Aligned parameter naming with other generated parameters
  *  - Support IS NULL and IS NOT NULL statements
- * 
+ *
  *  We don't need to necessarly generate this class the way we do here, a single string with all C# code would suffice.
  *  But: generating it avoids issued with mixed line endings and indentation. And, just because we can...
  */
@@ -57,7 +57,7 @@ export class WhereBuilderWriter {
                 csharp.writeLine('var i = 0;');
                 csharp.writeLine('return Recurse(ref i, expression.Body, isUnary: true);');
             });
-            
+
             // Recurse
             csharp.writeLine();
             WhereBuilderWriter.writeRecurseMethod(csharp);
@@ -90,6 +90,8 @@ export class WhereBuilderWriter {
                 { name: 'isUnary', typeName: 'bool', defaultValue: 'false' },
                 { name: 'prefix', typeName: 'string', defaultValue: 'null' },
                 { name: 'postfix', typeName: 'string', defaultValue: 'null' },
+                { name: 'isRightOperand', typeName: 'bool', defaultValue: 'false' }
+
             ]
         };
         // UnaryExpression
@@ -109,7 +111,7 @@ export class WhereBuilderWriter {
                     'bool valueIsNull = false;', // for correctly generating IS NULL and IS NOT NULL statements
                     `var ce = body.Right as ${expressionsNamespace}.ConstantExpression;`,
                     'if (ce != null && ce.Value == null) valueIsNull = true;',
-                    'return WherePart.Concat(Recurse(ref i, body.Left), NodeTypeToString(body.NodeType, valueIsNull), Recurse(ref i, body.Right));'
+                    'return WherePart.Concat(Recurse(ref i, body.Left), NodeTypeToString(body.NodeType, valueIsNull), Recurse(ref i, body.Right, false, null, null, true));'
                 ])
             });
             // ConstantExpression
@@ -133,10 +135,13 @@ export class WhereBuilderWriter {
                 csharp.writeCodeBlock(() => {
                     csharp.writeLine(`var property = (${reflectionNamespace}.PropertyInfo)member.Member;`);
                     csharp.writeLine('if (!_columnMapping.TryGetValue(property.Name, out var colName))');
-                    csharp.writeLineIndented('colName = property.Name;'); // assume that the column name is the same as the property name
+                    csharp.writeLineIndented('colName = property.Name;'); // no mapping: assume that the column name is the same as the property name
                     csharp.writeLine('if (isUnary && member.Type == typeof(bool))');
                     csharp.writeLineIndented('return WherePart.Concat(Recurse(ref i, expression), "=", WherePart.IsParameter(i++, true));');
-                    csharp.writeLine('return WherePart.IsSql("[" + colName + "]");');
+                    // isRightOperand is true if the MemberExpression is the right operand of a BinaryExpression,
+                    // e.g. the right part of "LeftClass.Property" = "RightClass.Property"
+                    csharp.writeLine('return isRightOperand ? WherePart.IsParameter(i++, GetValue(member)) : WherePart.IsSql("[" + colName + "]");');
+                    // csharp.writeLine('return WherePart.IsSql("[" + colName + "]");'); // code before isRightOperand
                 });
                 csharp.writeLine(`if (member.Member is ${reflectionNamespace}.FieldInfo)`);
                 csharp.writeCodeBlock(() => {
@@ -169,7 +174,7 @@ export class WhereBuilderWriter {
                        csharp.writeLines([
                            'collection = methodCall.Arguments[0];',
                            'property = methodCall.Arguments[1];'
-                       ]) 	
+                       ])
                     });
                     csharp.writeLine(`else if (!${reflectionNamespace}.CustomAttributeExtensions.IsDefined(methodCall.Method, typeof(${compilerServicesNamespace}.ExtensionAttribute)) && methodCall.Arguments.Count == 1)`);
                     csharp.writeCodeBlock(() => {
@@ -190,18 +195,18 @@ export class WhereBuilderWriter {
     }
 
     private static writeNodeTypeToStringMethod(csharp: CSharpWriter): void {
- 
+
         const nodeTypeToString: MethodDefinition = {
             name: 'NodeTypeToString', accessModifier: 'private', returnTypeName: 'string', isStatic: true,
             parameters: [{ name: 'nodeType', typeName: `${expressionsNamespace}.ExpressionType` }, {name: 'valueIsNull', typeName: 'bool', defaultValue: 'false'}]
         };
-        
+
         csharp.writeMethodBlock(nodeTypeToString, () => {
             csharp.writeLine('switch (nodeType)');
             csharp.writeCodeBlock(() => {
                 for (const expressionType in operators) {
-                    if (operators.hasOwnProperty(expressionType)) {                       
-                        // Example    case System.Linq.Expressions.ExpressionType.Add: return "+"; 
+                    if (operators.hasOwnProperty(expressionType)) {
+                        // Example    case System.Linq.Expressions.ExpressionType.Add: return "+";
                         csharp.writeIndent();
                         csharp.write(`case ${expressionsNamespace}.ExpressionType.${expressionType}: `);
                         switch (expressionType) {
@@ -228,7 +233,7 @@ export class WhereBuilderWriter {
             csharp.writeLine('public string Sql { get; private set; }');
             csharp.writeLine('public Dictionary<string, object> Parameters { get; private set; }');
             csharp.writeLine();
-            
+
             // ctor
             const ctor: MethodDefinition = {
                 name: 'WherePart', accessModifier: 'public', isConstructor: true,
@@ -240,17 +245,17 @@ export class WhereBuilderWriter {
             });
 
             // IsSql method
-            const isSql: MethodDefinition = { 
-                name: 'IsSql', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true, 
-                parameters: [{ name: 'sql', typeName: 'string' }] };                
+            const isSql: MethodDefinition = {
+                name: 'IsSql', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true,
+                parameters: [{ name: 'sql', typeName: 'string' }] };
 
             csharp.writeMethodBlock(isSql, () => {
-                csharp.writeLine('return new WherePart(sql, new Dictionary<string, object>());');                
+                csharp.writeLine('return new WherePart(sql, new Dictionary<string, object>());');
             });
 
             // IsParameter method
-            const isParameter: MethodDefinition = { 
-                name: 'IsParameter', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true, 
+            const isParameter: MethodDefinition = {
+                name: 'IsParameter', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true,
                 parameters: [{ name: 'count', typeName: 'int' }, { name: 'value', typeName: 'object' }] };
 
             csharp.writeMethodBlock(isParameter, () => {
@@ -264,8 +269,8 @@ export class WhereBuilderWriter {
             });
 
             // IsCollection method
-            const isCollection: MethodDefinition = { 
-                name: 'IsCollection', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true, 
+            const isCollection: MethodDefinition = {
+                name: 'IsCollection', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true,
                 parameters: [{ name: 'countStart', typeName: 'int', isReference: true }, { name: 'values', typeName: `${collectionsNamespace}.IEnumerable` }]
             };
 
@@ -280,7 +285,7 @@ export class WhereBuilderWriter {
                         'parameters.Add($"@p{countStart}", value);',
                         'sql.Append($"@p{countStart},");',
                         'countStart++;'
-                    ])                    
+                    ])
                 })
                 csharp.writeLine('if (sql.Length == 1)');
                 csharp.writeLineIndented('sql.Append("null,");');
@@ -289,23 +294,23 @@ export class WhereBuilderWriter {
             });
 
             // Concat method
-            const concat1: MethodDefinition = { 
-                name: 'Concat', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true, 
+            const concat1: MethodDefinition = {
+                name: 'Concat', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true,
                 parameters: [{ name: '@operator', typeName: 'string' }, { name: 'operand', typeName: 'WherePart' }]
             };
             csharp.writeMethodBlock(concat1, () => {
                 csharp.writeLine('return new WherePart($"({@operator} {operand.Sql})", operand.Parameters);');
             });
 
-            const concat2: MethodDefinition = { 
-                name: 'Concat', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true, 
+            const concat2: MethodDefinition = {
+                name: 'Concat', accessModifier: 'public', returnTypeName: 'WherePart', isStatic: true,
                 parameters: [{ name: 'left', typeName: 'WherePart' }, { name: '@operator', typeName: 'string' }, { name: 'right', typeName: 'WherePart' }]
             };
             csharp.writeMethodBlock(concat2, () => {
                 csharp.writeLines([
                     `var parameters = ${linqNamespace}.Enumerable.ToDictionary(${linqNamespace}.Enumerable.Union(left.Parameters, right.Parameters), kvp => kvp.Key, kvp => kvp.Value);`,
                     'return new WherePart($"({left.Sql} {@operator} {right.Sql})", parameters);'
-                ]);                
+                ]);
             });
         });
     }
