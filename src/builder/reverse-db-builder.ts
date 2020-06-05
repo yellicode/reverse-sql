@@ -286,6 +286,7 @@ export class ReverseDbBuilder {
 
         parametersRecordSet
             .filter(p => p.SPECIFIC_NAME === storedProcedure.SPECIFIC_NAME && p.SPECIFIC_SCHEMA === storedProcedure.SPECIFIC_SCHEMA)
+            .sort((a, b) => a.ORDINAL_POSITION - b.ORDINAL_POSITION)
             .forEach((p, index) => {
                 const isTableType = p.DATA_TYPE === 'table type' && !!p.USER_DEFINED_TYPE_NAME;
                 const sqlTypeName = isTableType ? p.USER_DEFINED_TYPE_NAME : p.DATA_TYPE;
