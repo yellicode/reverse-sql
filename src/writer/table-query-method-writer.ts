@@ -214,7 +214,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
 
         this.writeExecuteQueryMethod(methodName, resultSetClassName, query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
             csharp.writeIndent();
-            csharp.write(`var ${commandTextVariable} = @"SELECT ${resultSet.columns.map(c => c.name).join(', ')}`);
+            csharp.write(`var ${commandTextVariable} = @"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);
             csharp.writeEndOfLine();
             csharp.increaseIndent();
             csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
@@ -272,7 +272,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             csharp.writeLine('var wherePart = whereBuilder.ToSql(expression);');
             csharp.writeLine();
             csharp.writeIndent();
-            csharp.write(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => c.name).join(', ')}`);
+            csharp.write(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);
             csharp.writeEndOfLine();
             csharp.increaseIndent();
             csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
