@@ -104,14 +104,16 @@ export abstract class QueryMethodWriter {
                 this.csharp.writeLine('connection.Open();');
                 if (hasResultSet) {
                     this.csharp.writeLine(`var reader = command.ExecuteReader();`);
+                    const mapperClassName = this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!);
                     if (hasSingleRecordResultSet) {
                         this.csharp.writeLine('if (!reader.Read()) return null;');
-                        this.csharp.writeLine(`var record = ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
+                        this.csharp.writeLine(`var record = ${mapperClassName}.Create(reader).MapDataRecord(reader);`);
                     }
                     else {
+                        this.csharp.writeLine(`var mapper = ${mapperClassName}.Create(reader);`);
                         this.csharp.writeLine('while (reader.Read())');
                         this.csharp.writeCodeBlock(() => {
-                            this.csharp.writeLine(`yield return ${this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!)}.MapDataRecord(reader);`);
+                            this.csharp.writeLine(`yield return mapper.MapDataRecord(reader);`);
                         });
                     }
                 }

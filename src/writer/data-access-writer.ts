@@ -4,7 +4,7 @@ import { SqlStoredProcedure, SqlServerDatabase } from '../model/sql-server-datab
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
-import { ReverseSqlOptions, BuilderObjectTypes } from '../reverse-sql-options';
+import { ReverseSqlOptions } from '../reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
 import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-extensions';
 import { WhereBuilderWriter } from './where-builder.writer';
@@ -224,33 +224,62 @@ export class DataAccessWriter {
             return; // not a ClassDefinitionWithResultSet?
         }
 
+        const cs = this.csharp;
+
         const mapperClassDefinition: ClassDefinition = {
             name: this.objectNameProvider.getResultSetMapperClassName(classDefinition.name),
             accessModifier: 'internal',
             xmlDocSummary: [`Maps <see cref="IDataRecord"/> objects to <see cref="${classDefinition.name}"/> objects.`]
         };
 
-        this.csharp.writeClassBlock(mapperClassDefinition, () => {
-            const dataRecordParameter: ParameterDefinition = { name: 'dataRecord', typeName: 'IDataRecord' };
-            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: true, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };
-            this.csharp.writeMethodBlock(mapDataRecordMethod, () => {
-                this.csharp.writeLine(`if (${dataRecordParameter.name} == null) return null;`);
-                this.csharp.writeLine(`var result = new ${classDefinition.name}();`);
+        cs.writeClassBlock(mapperClassDefinition, () => {
+            // Fields
+            cs.writeLine('private readonly int[] _indices;');
+            // Constructor
+            const ctorParameter: ParameterDefinition = {name: 'indices', typeName: 'int[]'};
+            const ctor: MethodDefinition = { name: mapperClassDefinition.name, isConstructor: true, accessModifier: 'private', parameters: [ctorParameter]};
+            cs.writeLine();
+            cs.writeMethodBlock(ctor, () => {
+                cs.writeLine(`_indices = ${ctorParameter.name};`);
+            })
+
+            // Factory method
+            const dataReaderParameter: ParameterDefinition = { name: 'dataReader', typeName: 'IDataReader' };
+            const factoryMethod: MethodDefinition = {name: 'Create',  accessModifier: 'public', isStatic: true, returnTypeName: mapperClassDefinition.name, parameters: [dataReaderParameter]};
+            cs.writeLine();
+            cs.writeMethodBlock(factoryMethod, () => {
+                cs.writeLine('int[] indices = {');
+                cs.increaseIndent();
                 resultSet.columns.forEach(c => {
-                    this.csharp.writeLine(`if (!dataRecord.IsDBNull(${c.ordinal}))`);
-                    this.csharp.writeCodeBlock(() => {
+                    cs.writeLine(`dataReader.GetOrdinal("${c.name}"),`);
+                })
+                cs.decreaseIndent();
+                cs.writeLine('};');
+                cs.writeLine(`return new ${mapperClassDefinition.name}(indices);`);
+            });
+
+            // Mapper method
+            const dataRecordParameter: ParameterDefinition = { name: 'dataRecord', typeName: 'IDataRecord' };
+            const mapDataRecordMethod: MethodDefinition = { name: 'MapDataRecord', accessModifier: 'public', isStatic: false, returnTypeName: classDefinition.name, parameters: [dataRecordParameter] };
+            cs.writeLine();
+            cs.writeMethodBlock(mapDataRecordMethod, () => {
+                cs.writeLine(`if (${dataRecordParameter.name} == null) return null;`);
+                cs.writeLine(`var result = new ${classDefinition.name}();`);
+                resultSet.columns.forEach((c, index) => {
+                    cs.writeLine(`if (_indices[${index}] > -1 && !dataRecord.IsDBNull(_indices[${index}]))`);
+                    cs.writeCodeBlock(() => {
                         // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)
                         const propertyName = this.objectNameProvider.getColumnPropertyName(c);
                         const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
                         if (getValueMethod)
-                            this.csharp.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(${c.ordinal});`);
+                            cs.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(_indices[${index}]);`);
                         else {
                             // The column is mapped to an unknown type (most likely a custom enum). Cast the value.
-                            this.csharp.writeLine(`result.${propertyName} = (${c.objectTypeName}) dataRecord.GetValue(${c.ordinal});`);
+                            cs.writeLine(`result.${propertyName} = (${c.objectTypeName}) dataRecord.GetValue(_indices[${index}]);`);
                         }
                     });
                 });
-                this.csharp.writeLine('return result;');
+                cs.writeLine('return result;');
             });
         });
     }
