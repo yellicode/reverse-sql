@@ -14,9 +14,9 @@ import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-prov
 export class TableQueryMethodWriter extends QueryMethodWriter {
 
     constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, connectionStringFieldName: string) {
-        super(csharp, objectNameProvider, connectionStringFieldName)
-
+        super(csharp, objectNameProvider, connectionStringFieldName);
     }
+
     public writeTableInsertMethods(table: DbTable): void {
         const parameters: SqlServerParameterWithColumn[] = table.ownColumns
             .filter(c => !c.hasDefaultValue) // let the database handle default values
@@ -219,8 +219,8 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             csharp.increaseIndent();
             csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
             csharp.writeIndent();
-            csharp.write('WHERE ');
-            csharp.write(whereParameters.map(p => `${p.columnName} = ${QueryMethodWriter.minifyParameterName(p)}";`).join(' AND '));
+            csharp.write('WHERE ');            
+            csharp.write(whereParameters.map(p => `${p.columnName} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND ')).write(`";`);
             csharp.writeEndOfLine();
             csharp.decreaseIndent();
         });
