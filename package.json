@@ -33,8 +33,8 @@
     "@types/lodash": "^4.14.132"
   },
   "dependencies": {
-    "@yellicode/core": "^1.2.2",
-    "@yellicode/csharp": "^1.9.2",
+    "@yellicode/core": "^1.5.0",
+    "@yellicode/csharp": "^1.10.0",
     "lodash": "^4.17.15",
     "mssql": "^6.2.0"
   }
