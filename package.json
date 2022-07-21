@@ -16,7 +16,7 @@
   "types": "dist/types/reverse-sql.d.ts",
   "repository": {
     "type": "git",
-    "url": "github:yellicode/yellicode-reverse-sql.git"
+    "url": "github:yellicode/reverse-sql.git"
   },
   "scripts": {
     "build:es5": "tsc",
