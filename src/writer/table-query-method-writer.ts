@@ -256,29 +256,33 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             };
         const query: SqlServerQuery = { parameters: [], resultSets: [resultSet] };
 
-        const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>` };
-        let methodDefinition: MethodDefinition = { name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
+        const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`, isNullable: true, defaultValue: 'null' };
+        const methodDefinition: MethodDefinition = {name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
 
         // Because the SQL parameters are built dynamically by the WhereBuilder, we need to add them dynamicaly in the generated code
         const beforeWriteCommandParameters = (commandVariable: string, csharp: CSharpWriter): void => {
             csharp.writeLine('// Add parameters created by the WhereBuilder');
-            csharp.writeLine('foreach (var parameter in wherePart.Parameters)');
-            csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
+            csharp.writeLine('if (wherePart != null)');
+            csharp.writeCodeBlock(() => {
+                csharp.writeLine('foreach (var parameter in wherePart.Parameters)');
+                csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
+            });            
             csharp.writeLine();
         }
 
         this.writeExecuteQueryMethod(methodDefinition, this.objectNameProvider.getTableClassName(table), query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
-            csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);
-            csharp.writeLine('var wherePart = whereBuilder.ToSql(expression);');
+            
+            csharp.writeLine(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);            
+            csharp.writeLineIndented(`FROM [${table.schema}].[${table.name}]";`);         
             csharp.writeLine();
-            csharp.writeIndent();
-            csharp.write(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);
-            csharp.writeEndOfLine();
-            csharp.increaseIndent();
-            csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
-            csharp.writeIndent();
-            csharp.writeEndOfLine('WHERE {wherePart.Sql}";');
-            csharp.decreaseIndent();
+            csharp.writeLine('WhereBuilder.WherePart wherePart = null;');
+            csharp.writeLine(`if (${expressionParameter.name} != null)`);
+            csharp.writeCodeBlock(() => {
+                csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);
+                csharp.writeLine('wherePart = whereBuilder.ToSql(expression);');
+                csharp.writeLine('commandText = $"{commandText} WHERE {wherePart.Sql}";');
+            });            
+
         },
             beforeWriteCommandParameters);
     }
