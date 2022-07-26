@@ -30,7 +30,9 @@ export class CSharpReverseSqlTypeNameProvider implements ReverseSqlTypeNameProvi
         switch (lower) {
             case 'nvarchar':
             case 'varchar':
+            case 'char':
             case 'xml':
+            case 'text':
                 return csharpTypes.STRING;
             case 'hierarchyid':
                 return csharpTypes.HIERARCHYID;
