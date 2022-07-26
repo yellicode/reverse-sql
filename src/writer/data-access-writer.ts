@@ -12,6 +12,7 @@ import { TableQueryMethodWriter } from './table-query-method-writer';
 import { StoredProcedureMethodWriter } from './stored-procedure-method-writer';
 import { ReverseSqlClassBuilder } from '../builder/reverse-sql-class-builder';
 import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
+import { BYTE_ARRAY } from '../mapper/csharp-types';
 
 const connectionStringFieldName = '_dbConnectionString';
 
@@ -268,10 +269,11 @@ export class DataAccessWriter {
                 resultSet.columns.forEach((c, index) => {
                     cs.writeLine(`if (_indices[${index}] > -1 && !dataRecord.IsDBNull(_indices[${index}]))`);
                     cs.writeCodeBlock(() => {
-                        // TODO: GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length)
                         const propertyName = this.objectNameProvider.getColumnPropertyName(c);
                         const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
-                        if (getValueMethod)
+                        // Exclude GetBytes() because has a different signature than other methods.
+                        // TODO: generate GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) call.
+                        if (getValueMethod && c.objectTypeName !== BYTE_ARRAY)  
                             cs.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(_indices[${index}]);`);
                         else {
                             // The column is mapped to an unknown type (most likely a custom enum). Cast the value.
@@ -401,14 +403,17 @@ export class DataAccessWriter {
                 if (!this.options.tableSelectByPrimaryKeyMethodFilter || this.options.tableSelectByPrimaryKeyMethodFilter(t.schema!, t.name)) {
                     this.tableQueryMethodWriter.writeTableSelectByPrimaryKeyMethod(t);
                     this.csharp.writeLine();
-                }
-                // SelectWhere
-                if (!this.options.tableSelectByExpressionMethodFilter || this.options.tableSelectByExpressionMethodFilter(t.schema!, t.name)) {
-                    this.tableQueryMethodWriter.writeTableSelectByExpressionMethod(t);
-                    this.csharp.writeLine();
-                }
+                }              
             }
-            else this.logger.warn(`Cannot generate Delete, Get and Update methods for table '${t.schema}.${t.name}' because the table has no identity column.`);
+            else {
+                this.logger.warn(`Cannot generate Delete, Get and Update methods for table '${t.schema}.${t.name}' because the table has no identity column.`);
+            }
+
+            // SelectWhere            
+            if (!this.options.tableSelectByExpressionMethodFilter || this.options.tableSelectByExpressionMethodFilter(t.schema!, t.name)) {                                
+                this.tableQueryMethodWriter.writeTableSelectByExpressionMethod(t);
+                this.csharp.writeLine();
+            }
         });
     }
 
