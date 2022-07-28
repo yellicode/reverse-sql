@@ -31,6 +31,24 @@ export enum BuilderObjectTypes {
 }
 
 /**
+ * Sets how table and column names are escaped to avoid using reserved words in SQL statements.
+ */
+export enum ObjectNameEscaping {
+    /**
+     * Object names are not escaped.
+     */
+    None = 0,
+    /**
+     * Surrounds object names by double quotes as specified in the ANSI/ISO standard.
+     */
+    Ansi = 1,
+    /**
+     * Surrounds object names by square brackets. This is the default.
+     */
+    SqlServer = 1    
+}
+
+/**
  * Contains all reverse-engineering and code generation options.
  */
 export interface ReverseSqlOptions {
@@ -99,6 +117,12 @@ export interface ReverseSqlOptions {
      * specified table, selecting a record using a LINQ expression.
      */
     tableSelectByExpressionMethodFilter?: (schema: string, name: string) => boolean;
+
+    /**
+     * Indicates how table and column names should be escaped. The default is @see ObjectNameEscaping.SqlServer,
+     * which escapes names using square brackets.
+     */
+    objectNameEscaping?: ObjectNameEscaping;
 
     /**
      * Sets an optional logger.

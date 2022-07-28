@@ -4,7 +4,7 @@ import { SqlStoredProcedure, SqlServerDatabase } from '../model/sql-server-datab
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-type-name-provider';
 import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
-import { ReverseSqlOptions } from '../reverse-sql-options';
+import { ObjectNameEscaping, ReverseSqlOptions } from '../reverse-sql-options';
 import { Logger, ConsoleLogger, LogLevel } from '@yellicode/core';
 import { ClassDefinitionWithResultSet, ClassDefinitionWithTable } from '../builder/class-definition-extensions';
 import { WhereBuilderWriter } from './where-builder.writer';
@@ -24,17 +24,20 @@ export class DataAccessWriter {
     private classBuilder: ReverseSqlClassBuilder;
     private options: ReverseSqlOptions;
     private logger: Logger;
+    private objectNameEscaping: ObjectNameEscaping;
 
     constructor(private csharp: CSharpWriter, private namespace: string, options?: ReverseSqlOptions) {
         this.options = options || {};
 
-        this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);
-
+        const objectNameEscaping = this.options.objectNameEscaping == null ? ObjectNameEscaping.SqlServer : this.options.objectNameEscaping;
+        
+        this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);                
         this.objectNameProvider = this.options.objectNameProvider || new DefaultReverseSqlObjectNameProvider(this.options.includeSchema || false);
         this.typeNameProvider = this.options.typeNameProvider || new CSharpReverseSqlTypeNameProvider();
-        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, this.typeNameProvider, connectionStringFieldName);
+        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, this.typeNameProvider, objectNameEscaping, connectionStringFieldName);
         this.storedProcedureMethodWriter = new StoredProcedureMethodWriter(csharp, this.objectNameProvider, connectionStringFieldName);
         this.classBuilder = new ReverseSqlClassBuilder(this.options);
+        this.objectNameEscaping = objectNameEscaping;
     }
 
     // #region public methods
@@ -142,7 +145,7 @@ export class DataAccessWriter {
         this.csharp.writeLine(`#region ${dbClassName} class`);
         this.csharp.writeClassBlock({ name: dbClassName, accessModifier: 'public', isPartial: true }, () => {
             // Fields
-            this.csharp.writeLine(`private readonly string ${connectionStringFieldName};`);
+            this.csharp.writeLine(`protected readonly string ${connectionStringFieldName};`);
             // Constructor
             const connStringParam: ParameterDefinition = { name: 'connectionString', typeName: 'string' };
             const ctor: MethodDefinition = { name: dbClassName, accessModifier: 'public', isConstructor: true, parameters: [connStringParam] };
@@ -167,10 +170,36 @@ export class DataAccessWriter {
                 this.csharp.writeLine('#endregion Table data access calls');
             }
 
+            // Abstractions
+            this.csharp
+                .writeLine()
+                .writeLine(`protected virtual IDbConnection CreateConnection() { return new SqlConnection(this.${connectionStringFieldName}); }`);
+            this.csharp
+                .writeLine()
+                .writeLine('protected virtual IDbCommand CreateCommand(string commandText, IDbConnection connection, CommandType commandType) { return new SqlCommand(commandText, (SqlConnection)connection) { CommandType = commandType };}');
+            this.csharp
+                .writeLine()
+                .writeLine('protected virtual IDataParameter CreateOutputParameter(string parameterName, SqlDbType sqlDbType) { return new SqlParameter(parameterName, sqlDbType) { Direction = ParameterDirection.Output }; }');
+                this.csharp
+                .writeLine()
+                .writeLine('protected virtual void AddParameterWithValue(IDataParameterCollection parameters, string parameterName, object value) { ((SqlParameterCollection) parameters).AddWithValue(parameterName, value); }');
+            this.csharp
+                .writeLine()
+                .writeLine('protected virtual IDataParameter CreateInputParameter(string parameterName, SqlDbType sqlDbType, object value, string typeName = null, byte? precision = null, byte? scale = null, int? size = null)')
+                .writeCodeBlock(() => {
+                    this.csharp
+                    .writeLine('var p = new SqlParameter(parameterName, sqlDbType) { Direction = ParameterDirection.Input, Value = value };')
+                    .writeLine('if (typeName != null) p.TypeName = typeName;')
+                    .writeLine('if (precision.HasValue) p.Precision = precision.Value;')
+                    .writeLine('if (scale.HasValue) p.Scale = scale.Value;')
+                    .writeLine('if (size.HasValue) p.Size = size.Value;')
+                    .writeLine('return p;');
+            })
+
             // Write the WhereBuilder class
             this.csharp.writeLine();
             this.csharp.writeLine('#region Infrastructure');
-            WhereBuilderWriter.write(this.csharp);
+            WhereBuilderWriter.write(this.csharp, this.objectNameEscaping);
             this.csharp.writeLine('#endregion Infrastructure');
         });
         this.csharp.writeLine(`#endregion ${dbClassName} class`);
@@ -273,7 +302,7 @@ export class DataAccessWriter {
                         const getValueMethod = SystemDotDataNameMapper.getDataRecordGetValueMethod(c.objectTypeName);
                         // Exclude GetBytes() because has a different signature than other methods.
                         // TODO: generate GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) call.
-                        if (getValueMethod && c.objectTypeName !== BYTE_ARRAY)  
+                        if (getValueMethod && c.objectTypeName !== BYTE_ARRAY)
                             cs.writeLine(`result.${propertyName} = dataRecord.${getValueMethod}(_indices[${index}]);`);
                         else {
                             // The column is mapped to an unknown type (most likely a custom enum). Cast the value.
@@ -403,14 +432,14 @@ export class DataAccessWriter {
                 if (!this.options.tableSelectByPrimaryKeyMethodFilter || this.options.tableSelectByPrimaryKeyMethodFilter(t.schema!, t.name)) {
                     this.tableQueryMethodWriter.writeTableSelectByPrimaryKeyMethod(t);
                     this.csharp.writeLine();
-                }              
+                }
             }
             else {
                 this.logger.warn(`Cannot generate Delete, Get and Update methods for table '${t.schema}.${t.name}' because the table has no identity column.`);
             }
 
-            // SelectWhere            
-            if (!this.options.tableSelectByExpressionMethodFilter || this.options.tableSelectByExpressionMethodFilter(t.schema!, t.name)) {                                
+            // SelectWhere
+            if (!this.options.tableSelectByExpressionMethodFilter || this.options.tableSelectByExpressionMethodFilter(t.schema!, t.name)) {
                 this.tableQueryMethodWriter.writeTableSelectByExpressionMethod(t);
                 this.csharp.writeLine();
             }

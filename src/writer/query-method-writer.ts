@@ -77,8 +77,10 @@ export abstract class QueryMethodWriter {
         this.csharp.writeMethodBlock(method, () => {
             writeCommandText('commandText', this.csharp);
             this.csharp.writeLine();
-            this.csharp.writeLine(`using (var connection = new SqlConnection(${this.connectionStringFieldName}))`);
-            this.csharp.writeLine(`using (var command = new SqlCommand(commandText, connection) { CommandType = CommandType.${commandType} })`);
+            // this.csharp.writeLine(`using (var connection = new SqlConnection(${this.connectionStringFieldName}))`);
+            // this.csharp.writeLine(`using (var command = new SqlCommand(commandText, connection) { CommandType = CommandType.${commandType} })`);
+            this.csharp.writeLine(`using (var connection = this.CreateConnection())`);
+            this.csharp.writeLine(`using (var command = CreateCommand(commandText, connection, CommandType.${commandType}))`);
             this.csharp.writeCodeBlock(() => {
                 if (beforeWriteCommandParameters)
                     beforeWriteCommandParameters('command', this.csharp);
@@ -147,7 +149,8 @@ export abstract class QueryMethodWriter {
         this.csharp.writeLine(`// ${p.name}`);
         if (methodParameter.isOutput) {
             // Make a SqlParameter that will contain the output
-            this.csharp.writeLine(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) { Direction = ParameterDirection.Output };`);
+            // this.csharp.writeLine(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) { Direction = ParameterDirection.Output };`);
+            this.csharp.writeLine(`var ${variableName} = CreateOutputParameter("${parameterName}", SqlDbType.${sqlDbType});`);
             this.csharp.writeLine(`command.Parameters.Add(${variableName});`);
             return;
         }
@@ -162,21 +165,14 @@ export abstract class QueryMethodWriter {
 
         this.csharp.writeIndent();
         // Initialize the parameter
-        this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
-        this.csharp.write(` Direction = ParameterDirection.Input, Value = ${valueSelector}`);
-        if (p.tableType) {
-            this.csharp.write(`, TypeName = "${p.tableType.schema}.${p.tableType.name}"`);
-        }
-        if (p.precision || p.scale) {
-            this.csharp.write(`, Precision = ${p.precision}`);
-        }
-        if (p.scale) {
-            this.csharp.write(`, Scale = ${p.scale}`);
-        }
-        if (p.length) {
-            this.csharp.write(`, Size = ${p.length}`);
-        }
-        this.csharp.writeEndOfLine(' };');
+        // this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
+        // CreateInputParameter(string parameterName, SqlDbType sqlDbType, object value, string? typeName = null, byte? precision = null, byte? scale = null, int? size = null)
+        this.csharp.write(`var ${variableName} = CreateInputParameter("${parameterName}", SqlDbType.${sqlDbType}, ${valueSelector}`);
+        this.csharp.write(p.tableType ? `, "${p.tableType.schema}.${p.tableType.name}"`: ', null');        
+        this.csharp.write(p.precision || p.scale ? `, ${p.precision}`: ', null');
+        this.csharp.write(p.scale ? `, ${p.scale}`: ', null');
+        this.csharp.write(p.length ? `, ${p.length}`: ', null');        
+        this.csharp.writeEndOfLine(');');
 
         // Null check
         if (!p.isTableValued) { // Table-valued parameters cannot be DBNull, we pass a null reference instead (see above)

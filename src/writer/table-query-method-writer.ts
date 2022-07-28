@@ -10,11 +10,23 @@ import { CSharpReverseSqlTypeNameProvider } from '../mapper/csharp-reverse-sql-t
 import { QueryMethodWriter } from './query-method-writer';
 import { ReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
 import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-provider';
+import { ObjectNameEscaping } from '../reverse-sql-options';
 
 export class TableQueryMethodWriter extends QueryMethodWriter {
 
-    constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, connectionStringFieldName: string) {
+    constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, private objectNameEscaping: ObjectNameEscaping, connectionStringFieldName: string) {
         super(csharp, objectNameProvider, connectionStringFieldName);
+    }
+
+    private escapeObjectName(name: string): string {
+        switch (this.objectNameEscaping) {
+            case ObjectNameEscaping.SqlServer:
+                return `[${name}]`;
+            case ObjectNameEscaping.Ansi:
+                return `""${name}""`;
+            case ObjectNameEscaping.None:
+                return name;
+        }
     }
 
     public writeTableInsertMethods(table: DbTable): void {
@@ -32,8 +44,8 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         this.writeExecuteQueryMethod(methodName, null, query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
             const inputParameters = parameters.filter(p => !p.isReadOnly);
 
-            csharp.writeLine(`var ${commandTextVariable} = @"INSERT INTO [${table.schema}].[${table.name}]`);
-            csharp.writeLineIndented(`(${inputParameters.map(p => `[${p.columnName}]`).join(', ')})`);
+            csharp.writeLine(`var ${commandTextVariable} = @"INSERT INTO ${this.escapeObjectName(table.name)}`);
+            csharp.writeLineIndented(`(${inputParameters.map(p => `${this.escapeObjectName(p.columnName!)}`).join(', ')})`);
 
             if (idParameter) {
                 csharp.writeLineIndented(`VALUES (${inputParameters.map(p => `${QueryMethodWriter.minifyParameterName(p)}`).join(', ')})`);
@@ -150,12 +162,13 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
                 .writeLine('var updates = new List<string>();');
 
             updateParameters.forEach((p) => {
-                this.csharp.writeLine(`if (columns.HasFlag(${columnsEnum.name}.${p.columnName!})) updates.Add("[${p.columnName}] = ${QueryMethodWriter.minifyParameterName(p)}");`);
+                this.csharp.writeLine(`if (columns.HasFlag(${columnsEnum.name}.${p.columnName!})) updates.Add(@"${this.escapeObjectName(p.columnName!)} = ${QueryMethodWriter.minifyParameterName(p)}");`);
             })
             this.csharp
                 .writeIndent()
-                .write(`var ${commandTextVariable} = $"UPDATE [${table.schema}].[${table.name}] SET {string.Join(", ", updates)} WHERE `)
-                .write(whereParameters.map(p => `${p.columnName} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND '))
+                .write(`var ${commandTextVariable} = $@"UPDATE ${this.escapeObjectName(table.name)} SET {string.Join(", ", updates)} WHERE `)
+                // .write(`var ${commandTextVariable} = $"UPDATE ${this.escapeObjectName(table.name)} SET {string.Join(", ", updates)} WHERE `)
+                .write(whereParameters.map(p => `${this.escapeObjectName(p.columnName!)} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND '))
                 .writeEndOfLine('";');
         }, undefined, (p: SqlParameter) => {
             if (p.isIdentity) return null; // identity is not conditional
@@ -214,15 +227,18 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
 
         this.writeExecuteQueryMethod(methodName, resultSetClassName, query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
             csharp.writeIndent();
-            csharp.write(`var ${commandTextVariable} = @"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);
-            csharp.writeEndOfLine();
-            csharp.increaseIndent();
-            csharp.writeLine(`FROM [${table.schema}].[${table.name}]`);
-            csharp.writeIndent();
-            csharp.write('WHERE ');            
-            csharp.write(whereParameters.map(p => `${p.columnName} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND ')).write(`";`);
-            csharp.writeEndOfLine();
-            csharp.decreaseIndent();
+            // csharp.write(`var ${commandTextVariable} = @"SELECT ${resultSet.columns.map(c => `${c.name}`).join(', ')}`);
+            csharp.write(`var ${commandTextVariable} = @"SELECT * FROM ${this.escapeObjectName(table.name)} WHERE `);
+            csharp.write(whereParameters.map(p => `${this.escapeObjectName(p.columnName!)} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND ')).write(`";`)
+            .writeEndOfLine();
+            // csharp.writeEndOfLine();
+            // csharp.increaseIndent();
+            // csharp.writeLine(`FROM ${table.name}`);
+            // csharp.writeIndent();
+            // csharp.write('WHERE ');
+            // csharp.write(whereParameters.map(p => `${this.escapeObjectName(p.columnName!)} = ${QueryMethodWriter.minifyParameterName(p)}`).join(' AND ')).write(`";`);
+            // csharp.writeEndOfLine();
+            // csharp.decreaseIndent();
         });
     }
 
@@ -256,7 +272,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             };
         const query: SqlServerQuery = { parameters: [], resultSets: [resultSet] };
 
-        const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`, isNullable: true, defaultValue: 'null' };
+        const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`, defaultValue: 'null' };
         const methodDefinition: MethodDefinition = {name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
 
         // Because the SQL parameters are built dynamically by the WhereBuilder, we need to add them dynamicaly in the generated code
@@ -265,15 +281,17 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             csharp.writeLine('if (wherePart != null)');
             csharp.writeCodeBlock(() => {
                 csharp.writeLine('foreach (var parameter in wherePart.Parameters)');
-                csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
-            });            
+                // csharp.writeLineIndented(`${commandVariable}.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);`);
+                csharp.writeLineIndented(`this.AddParameterWithValue(${commandVariable}.Parameters, parameter.Key, parameter.Value ?? DBNull.Value);`);
+            });
             csharp.writeLine();
         }
 
         this.writeExecuteQueryMethod(methodDefinition, this.objectNameProvider.getTableClassName(table), query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
-            
-            csharp.writeLine(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => `[${c.name}]`).join(', ')}`);            
-            csharp.writeLineIndented(`FROM [${table.schema}].[${table.name}]";`);         
+
+            // csharp.writeLine(`var ${commandTextVariable} = $@"SELECT ${resultSet.columns.map(c => `${c.name}`).join(', ')}`);
+            // csharp.writeLineIndented(`FROM ${table.name}";`);
+            csharp.writeLine(`var ${commandTextVariable} = $@"SELECT * FROM ${this.escapeObjectName(table.name)}";`);
             csharp.writeLine();
             csharp.writeLine('WhereBuilder.WherePart wherePart = null;');
             csharp.writeLine(`if (${expressionParameter.name} != null)`);
@@ -281,7 +299,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
                 csharp.writeLine(`var whereBuilder = new WhereBuilder(${mappingFieldName});`);
                 csharp.writeLine('wherePart = whereBuilder.ToSql(expression);');
                 csharp.writeLine('commandText = $"{commandText} WHERE {wherePart.Sql}";');
-            });            
+            });
 
         },
             beforeWriteCommandParameters);
@@ -292,7 +310,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         const query: SqlServerQuery = { parameters: [idParameter] };
         const methodName = this.objectNameProvider.getTableDeleteMethodName(table);
         this.writeExecuteQueryMethod(methodName, null, query, null, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
-            csharp.writeLine(`var ${commandTextVariable} = @"DELETE FROM [${table.schema}].[${table.name}] WHERE ${idParameter.columnName} = ${QueryMethodWriter.minifyParameterName(idParameter)}";`);
+            csharp.writeLine(`var ${commandTextVariable} = @"DELETE FROM ${this.escapeObjectName(table.name)} WHERE ${this.escapeObjectName(idParameter.columnName!)} = ${QueryMethodWriter.minifyParameterName(idParameter)}";`);
         });
     }
 

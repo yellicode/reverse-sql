@@ -9,6 +9,7 @@
  *  But: generating it avoids issued with mixed line endings and indentation. And, just because we can...
  */
 import { CSharpWriter, ClassDefinition, MethodDefinition } from '@yellicode/csharp';
+import { ObjectNameEscaping } from '../reverse-sql-options';
 
 const className = 'WhereBuilder';
 const collectionsNamespace = 'System.Collections';
@@ -39,7 +40,7 @@ const operators: { [expressionType: string]: string; } = {
 }
 
 export class WhereBuilderWriter {
-    public static write(csharp: CSharpWriter): void {
+    public static write(csharp: CSharpWriter, objectNameEscaping: ObjectNameEscaping): void {
         const classDefinition: ClassDefinition = { name: className, accessModifier: 'internal' };
         csharp.writeClassBlock(classDefinition, () => {
             csharp.writeLine('private readonly IDictionary<string, string> _columnMapping;');
@@ -60,7 +61,7 @@ export class WhereBuilderWriter {
 
             // Recurse
             csharp.writeLine();
-            WhereBuilderWriter.writeRecurseMethod(csharp);
+            WhereBuilderWriter.writeRecurseMethod(csharp, objectNameEscaping);
 
             // GetValue
             csharp.writeLine();
@@ -82,7 +83,7 @@ export class WhereBuilderWriter {
         })
     }
 
-    private static writeRecurseMethod(csharp: CSharpWriter): void {
+    private static writeRecurseMethod(csharp: CSharpWriter, objectNameEscaping: ObjectNameEscaping): void {
         const recurse: MethodDefinition = {
             name: 'Recurse', returnTypeName: 'WherePart', accessModifier: 'private', parameters: [
                 { name: 'i', typeName: `int`, isReference: true },
@@ -140,7 +141,18 @@ export class WhereBuilderWriter {
                     csharp.writeLineIndented('return WherePart.Concat(Recurse(ref i, expression), "=", WherePart.IsParameter(i++, true));');
                     // isRightOperand is true if the MemberExpression is the right operand of a BinaryExpression,
                     // e.g. the right part of "LeftClass.Property" = "RightClass.Property"
-                    csharp.writeLine('return isRightOperand ? WherePart.IsParameter(i++, GetValue(member)) : WherePart.IsSql("[" + colName + "]");');
+                    switch (objectNameEscaping) {
+                        case ObjectNameEscaping.SqlServer:
+                            csharp.writeLine('return isRightOperand ? WherePart.IsParameter(i++, GetValue(member)) : WherePart.IsSql("[" + colName + "]");');
+                            break;
+                        case ObjectNameEscaping.Ansi:
+                            csharp.writeLine('return isRightOperand ? WherePart.IsParameter(i++, GetValue(member)) : WherePart.IsSql(@"" + colName + @"");');
+                            break;
+                        case ObjectNameEscaping.None:
+                            csharp.writeLine('return isRightOperand ? WherePart.IsParameter(i++, GetValue(member)) : WherePart.IsSql(colName);');
+                            break;
+                    }
+
                     // csharp.writeLine('return WherePart.IsSql("[" + colName + "]");'); // code before isRightOperand
                 });
                 csharp.writeLine(`if (member.Member is ${reflectionNamespace}.FieldInfo)`);
