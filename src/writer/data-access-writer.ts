@@ -52,6 +52,7 @@ export class DataAccessWriter {
             writer.csharp.writeLine('#endregion Table classes');
             writer.csharp.writeLine();
             writer.csharp.writeLine('#region Table class mappers');
+            writer.writeDataRecordMapperInterface();
             writer.writeResultSetMappers(classDefinitions);
             writer.csharp.writeLine('#endregion Table class mappers');
             writer.csharp.writeLine();
@@ -241,6 +242,14 @@ export class DataAccessWriter {
 
     // #endregion public methods
 
+    private writeDataRecordMapperInterface(): void {
+        this.csharp
+            .writeLine('internal interface IDataRecordMapper<T>')
+            .writeLine('{')
+            .writeLineIndented(' T MapDataRecord(IDataRecord dataRecord);')            
+            .writeLine('}');
+    }
+
     private writeResultSetMappers(resultSetClasses: ClassDefinition[]): void {
         resultSetClasses.forEach(cd => {
             this.writeResultSetMapper(cd, (cd as ClassDefinitionWithResultSet)._resultSet);
@@ -259,7 +268,8 @@ export class DataAccessWriter {
         const mapperClassDefinition: ClassDefinition = {
             name: this.objectNameProvider.getResultSetMapperClassName(classDefinition.name),
             accessModifier: 'internal',
-            xmlDocSummary: [`Maps <see cref="IDataRecord"/> objects to <see cref="${classDefinition.name}"/> objects.`]
+            xmlDocSummary: [`Maps <see cref="IDataRecord"/> objects to <see cref="${classDefinition.name}"/> objects.`],
+            implements: [`IDataRecordMapper<${classDefinition.name}>`]
         };
 
         cs.writeClassBlock(mapperClassDefinition, () => {
