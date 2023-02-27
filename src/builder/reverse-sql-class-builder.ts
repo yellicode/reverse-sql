@@ -71,7 +71,8 @@ export class ReverseSqlClassBuilder {
                 _resultSet: { columns: resultSetColumns },
                 name: this.objectNameProvider.getTableClassName(table),
                 accessModifier: 'public',
-                properties: classProperties
+                properties: classProperties,                
+                isPartial: true
             };
 
             classDefinitions.push(classDefinition);
