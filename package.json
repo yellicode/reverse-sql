@@ -21,7 +21,7 @@
   "scripts": {
     "build:es5": "tsc",
     "build:es6": "tsc -m es6 -t es6 --outDir dist/es6 --declaration --declarationDir dist/types",
-    "build:umd": "./node_modules/.bin/rollup --config rollup.config.js",
+    "build:umd": "rollup --config rollup.config.js",
     "build:dist": "npm run build:es5 & npm run build:es6 & npm run build:umd",
     "build": "npm run build:dist",
     "prepare": "npm run build:dist"
