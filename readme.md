@@ -123,7 +123,6 @@ For example, set to `BuilderObjectTypes.Tables` to only reverse engineer tables 
 * Unable to connect to a **named SQL Server instance**: if you have need to connect to a named SQL server instance, you cannot use a connection string but you should provide a connection configuration object instead. See [setting up a database connection](#setup-connection) for an example.
 
 ## Todo
-* Add an option to support the new [Microsoft.Data.SqlClient](https://devblogs.microsoft.com/dotnet/introducing-the-new-microsoftdatasqlclient/).
 * Support for database Views.
 * Transaction support.
 * Async support.

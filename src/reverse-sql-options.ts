@@ -125,6 +125,12 @@ export interface ReverseSqlOptions {
     objectNameEscaping?: ObjectNameEscaping;
 
     /**
+     * Indicates use of Microsoft.Data.SqlClient instead of System.Data.SqlClient.
+     * See https://devblogs.microsoft.com/dotnet/introducing-the-new-microsoftdatasqlclient/
+     */
+    useMicrosoftDataSqlClient?: boolean;
+
+    /**
      * Sets an optional logger.
      */
     logger?: Logger;
