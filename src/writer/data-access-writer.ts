@@ -88,7 +88,8 @@ export class DataAccessWriter {
         }
 
         if (includeUsingsAndNamespace) {
-            this.csharp.writeUsingDirectives('System', 'System.Collections', 'System.Collections.Generic', 'System.Data', 'Microsoft.SqlServer.Server');
+            this.csharp.writeUsingDirectives('System', 'System.Collections', 'System.Collections.Generic', 'System.Data', 
+                this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient.Server' : 'Microsoft.SqlServer.Server');
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
                 writeFunc(this);
@@ -130,7 +131,8 @@ export class DataAccessWriter {
 
     public writeDatabaseClass(database: SqlServerDatabase, dbClassName: string, includeUsingsAndNamespace: boolean = false): void {
         if (includeUsingsAndNamespace) {
-            this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data', 'System.Data.SqlClient');
+            this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data', 
+                this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient' : 'System.Data.SqlClient');
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
                 this.writeDatabaseClassInternal(database, dbClassName);
@@ -207,9 +209,10 @@ export class DataAccessWriter {
     }
 
     public writeAll(db: SqlServerDatabase, dbClassName: string): void {
-        const usingDirectives = ['System', 'System.Collections', 'System.Collections.Generic', 'System.Data', 'System.Data.SqlClient'];
+        const usingDirectives = ['System', 'System.Collections', 'System.Collections.Generic', 'System.Data',
+            this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient' : 'System.Data.SqlClient'];
         if (db.tableTypes && db.tableTypes.length) {
-            usingDirectives.push('Microsoft.SqlServer.Server'); // because of the Microsoft.SqlServer.Server.SqlDataRecord dependency
+            usingDirectives.push(this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient.Server' : 'Microsoft.SqlServer.Server'); // because of the SqlDataRecord dependency
         }
         this.csharp.writeUsingDirectives(...usingDirectives);
         this.csharp.writeLine();
@@ -231,7 +234,8 @@ export class DataAccessWriter {
     }
 
     public writeUsingDirectivesAndNamespaceBlock(contents: (writer: DataAccessWriter) => void) {
-        this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data', 'System.Data.SqlClient');
+        this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data',
+            this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient' : 'System.Data.SqlClient');
         this.csharp.writeLine();
         this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
             contents(this);
