@@ -1,6 +1,6 @@
 {
   "name": "@yellicode/reverse-sql",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "Reverse engineers a SQL-Server database and generates C# entities, CRUD actions and stored procedure calls.",
   "keywords": [
     "sql server",
