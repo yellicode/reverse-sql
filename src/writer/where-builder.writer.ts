@@ -37,6 +37,7 @@ const operators: { [expressionType: string]: string; } = {
     Or: '|',
     OrElse: 'OR',
     Subtract: '-',
+    Convert: ''    
 }
 
 export class WhereBuilderWriter {
