@@ -37,6 +37,6 @@
     "@yellicode/core": "^1.5.0",
     "@yellicode/csharp": "^1.10.0",
     "lodash": "^4.17.15",
-    "mssql": "^6.2.0"
+    "mssql": "^12.5.0"
   }
 }
