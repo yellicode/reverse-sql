@@ -14,8 +14,8 @@ import { ObjectNameEscaping } from '../reverse-sql-options';
 
 export class TableQueryMethodWriter extends QueryMethodWriter {
 
-    constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, private objectNameEscaping: ObjectNameEscaping, connectionStringFieldName: string) {
-        super(csharp, objectNameProvider, connectionStringFieldName);
+    constructor(csharp: CSharpWriter, objectNameProvider: ReverseSqlObjectNameProvider, private typeNameProvider: ReverseSqlTypeNameProvider, private objectNameEscaping: ObjectNameEscaping, async: boolean) {
+        super(csharp, objectNameProvider, async);
     }
 
     private escapeObjectName(name: string): string {
@@ -38,6 +38,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         const idParameter = parameters.find(c => c.isIdentity);
         const methodName = this.objectNameProvider.getTableInsertMethodName(table);
         const columns = table.ownColumns;
+        const async = this.async;
 
         // Write an overload that acceps individual parameters
         const query: SqlServerQuery = { parameters: parameters };
@@ -59,14 +60,24 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         const tableParameterName = NameUtility.unCapitalize(tableClassName);
         const methodParameters: ParameterDefinition[] = [{ name: tableParameterName, typeName: tableClassName }];
         const methodDefinition: MethodDefinition = { name: methodName, accessModifier: 'public', parameters: methodParameters };
-
+        if (async) {
+            methodDefinition.isAsync = true;
+            if (idParameter) {
+                // async: no out parameter but a return type
+                methodDefinition.returnTypeName = idParameter.objectTypeName;
+            }
+        }
         this.csharp.writeLine();
         this.csharp.writeMethodBlock(methodDefinition, () => {
-            if (idParameter) {
+            // The id out parameter, unless async
+            if (idParameter && !async) {
                 this.csharp.writeLine(`${idParameter.objectTypeName} id;`);
             }
             this.csharp.writeIndent();
-            this.csharp.write(`${methodName}(`);
+            this.csharp.write(async ?
+                `var id = await ${methodName}(` : // no out parameter
+                `${methodName}(`); // with out parameter
+
             // Pass input parameters, mapped from the table class instance
             this.csharp.write(parameters
                 .filter(p => p !== idParameter)
@@ -76,8 +87,9 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
                 .join(', '));
 
             // Pass the output parameter
-            if (idParameter)
+            if (idParameter && !async) {
                 this.csharp.write(', out id');
+            }
 
             this.csharp.writeEndOfLine(');');
 
@@ -85,6 +97,9 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
                 // Now assign the id parameter to the property that matches the id column
                 const idPropertyName = this.objectNameProvider.getColumnPropertyName({ name: idParameter._column.name, ordinal: columns.indexOf(idParameter._column) });
                 this.csharp.writeLine(`${tableParameterName}.${idPropertyName} = id;`);
+            }
+            if (async) {
+                this.csharp.writeLine(`return id;`);
             }
         });
     }
@@ -151,7 +166,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             { name: tableParameterName, typeName: tableClassName },
             { name: 'columns', typeName: columnsEnum.name, defaultValue: `${columnsEnum.name}.All` }];
 
-        const updateUsingClassMethod: MethodDefinition = { name: methodName, accessModifier: 'public', parameters: methodParameters };
+        const updateUsingClassMethod: MethodDefinition = { name: methodName, accessModifier: 'public', parameters: methodParameters, isAsync: this.async };
 
         this.csharp.writeLine();
         this.writeExecuteQueryMethod(updateUsingClassMethod, null, query, tableParameterName, 'Text', true, (commandTextVariable: string, csharp: CSharpWriter) => {
@@ -190,7 +205,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
             return methodParameter;
         });
 
-        var updateUsingParametersMethod: MethodDefinition = { name: methodName, parameters: updateUsingParametersMethodParameters, accessModifier: 'public' };
+        var updateUsingParametersMethod: MethodDefinition = { name: methodName, parameters: updateUsingParametersMethodParameters, accessModifier: 'public', isAsync: this.async };
         this.csharp.writeLine();
         this.csharp.writeMethodBlock(updateUsingParametersMethod, () => {
             this.csharp.writeLine(`this.${methodName}(new ${tableClassName}() {`).increaseIndent()
@@ -273,7 +288,7 @@ export class TableQueryMethodWriter extends QueryMethodWriter {
         const query: SqlServerQuery = { parameters: [], resultSets: [resultSet] };
 
         const expressionParameter: ParameterDefinition = { name: 'expression', typeName: `System.Linq.Expressions.Expression<Func<${tableClassName}, bool>>`, defaultValue: 'null' };
-        const methodDefinition: MethodDefinition = {name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter] };
+        const methodDefinition: MethodDefinition = {name: this.objectNameProvider.getTableSelectByExpressionMethodName(table), accessModifier: 'public', parameters: [expressionParameter], isAsync: this.async };
 
         // Because the SQL parameters are built dynamically by the WhereBuilder, we need to add them dynamicaly in the generated code
         const beforeWriteCommandParameters = (commandVariable: string, csharp: CSharpWriter): void => {

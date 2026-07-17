@@ -7,7 +7,7 @@ import { SystemDotDataNameMapper } from '../mapper/system-dot-data-name-mapper';
 
 export abstract class QueryMethodWriter {
 
-    constructor(protected csharp: CSharpWriter, protected objectNameProvider: ReverseSqlObjectNameProvider, private connectionStringFieldName: string) {
+    constructor(protected csharp: CSharpWriter, protected objectNameProvider: ReverseSqlObjectNameProvider, protected async: boolean) {
 
     }
 
@@ -23,12 +23,19 @@ export abstract class QueryMethodWriter {
         inputParameterCondition?: (p: SqlParameter) => string | null
     ): void {
 
+        const async = this.async;
+
         let method: MethodDefinition;
         if (typeof (methodNameOrDefinition) === 'string') {
             method = { name: methodNameOrDefinition, accessModifier: 'public' };
         }
-        else
+        else {
             method = methodNameOrDefinition;
+        }
+
+        if (async) {
+            method.isAsync = true;
+        }
 
         // Are there any result sets?
         const hasResultSet = q.resultSets && q.resultSets.length;
@@ -39,13 +46,11 @@ export abstract class QueryMethodWriter {
             method.returnTypeName = hasSingleRecordResultSet ? resultSetClassName! : `IEnumerable<${resultSetClassName}>`;
         }
         else {
-            // Note: identities are returned as output parameter
             method.returnTypeName = 'void';
         }
 
         const methodParametersBySqlName: Map<string, ParameterDefinition> = new Map<string, ParameterDefinition>();
-
-        const methodParameters: ParameterDefinition[] = method.parameters || [];
+        let methodParameters: ParameterDefinition[] = method.parameters || [];
         q.parameters.forEach(p => {
             const objectTypeName = p.tableType ?
                 `IEnumerable<${this.objectNameProvider.getTableTypeClassName(p.tableType)}>` :
@@ -55,7 +60,9 @@ export abstract class QueryMethodWriter {
                 name: '', // filled below
                 typeName: objectTypeName
             };
+
             methodParameter.isOutput = p.direction === SqlParameterDirection.Output || p.direction === SqlParameterDirection.InputOutput;
+
             // We don't know if the SP parameter (or the related column, at this moment) is nullable, so allow every input parameter to be null
             methodParameter.isNullable = p.isNullable && !p.isTableValued && CSharpReverseSqlTypeNameProvider.canBeNullable(methodParameter.typeName);
             if (fillParametersFromPropertiesOf) {
@@ -70,15 +77,44 @@ export abstract class QueryMethodWriter {
             methodParametersBySqlName.set(p.name, methodParameter);
         });
 
+        let resultParam: ParameterDefinition | undefined;
+        if (async) {
+            // async methods do not support out parameters. Move the first out parameter to the return.
+            resultParam = methodParameters.find(p => p.isOutput);
+            if (resultParam) {
+                if (method.returnTypeName && method.returnTypeName !== 'void') {
+                    console.error(`Async method ${method.name} cannot have output parameter ${resultParam.name} and already has return type ${method.returnTypeName}.`);
+                }
+                else {
+                    method.returnTypeName = resultParam.isNullable ? resultParam.typeName + '?' : resultParam.typeName; // already filled with a standard .NET type by ReverseDbBuilder
+                }
+                methodParameters = methodParameters.filter(p => !p.isOutput);
+            }
+        }
+
         // Make output parameters show up as last
         method.parameters = methodParameters.sort((a, b) => { return (a.isOutput === b.isOutput) ? 0 : a.isOutput ? 1 : -1; });
+        if (async) {
+            method.parameters.push({ name: 'cancellationToken', typeName: 'CancellationToken', defaultValue: 'default' })
+        }
 
         // Write
-        this.csharp.writeMethodBlock(method, () => {
+        const internalMethod: MethodDefinition = {
+            ...method,
+            name: method.name + 'Internal',
+            accessModifier: 'private'
+        };
+
+        this.csharp.writeMethodBlock(internalMethod, () => {
             writeCommandText('commandText', this.csharp);
             this.csharp.writeLine();
             // this.csharp.writeLine(`using (var connection = new SqlConnection(${this.connectionStringFieldName}))`);
             // this.csharp.writeLine(`using (var command = new SqlCommand(commandText, connection) { CommandType = CommandType.${commandType} })`);
+            if (resultParam) {
+                this.csharp.writeLine(resultParam.isNullable ?
+                        `${resultParam.typeName}? ${resultParam.name};` :
+                        `${resultParam.typeName} ${resultParam.name};`);
+            }
             this.csharp.writeLine(`using (var connection = this.CreateConnection())`);
             this.csharp.writeLine(`using (var command = CreateCommand(commandText, connection, CommandType.${commandType}))`);
             this.csharp.writeCodeBlock(() => {
@@ -103,24 +139,46 @@ export abstract class QueryMethodWriter {
                     this.csharp.writeLine();
                 });
                 this.csharp.writeLine('// Execute');
-                this.csharp.writeLine('connection.Open();');
+                this.csharp.writeLine(async ?
+                    'await connection.OpenAsync();' :
+                    'connection.Open();');
+
                 if (hasResultSet) {
-                    this.csharp.writeLine(`var reader = command.ExecuteReader();`);
+                    this.csharp.writeLine(async ?
+                        'var reader = await command.ExecuteReaderAsync();':
+                        'var reader = command.ExecuteReader();'
+                    );
                     const mapperClassName = this.objectNameProvider.getResultSetMapperClassName(resultSetClassName!);
                     if (hasSingleRecordResultSet) {
-                        this.csharp.writeLine('if (!reader.Read()) return null;');
+                        this.csharp.writeLine(async ?
+                                'if (!await reader.ReadAsync()) return null;':
+                                'if (!reader.Read()) return null;'
+                            );
                         this.csharp.writeLine(`var record = ${mapperClassName}.Create(reader).MapDataRecord(reader);`);
                     }
                     else {
                         this.csharp.writeLine(`var mapper = ${mapperClassName}.Create(reader);`);
-                        this.csharp.writeLine('while (reader.Read())');
+                        if (async) {
+                            this.csharp.writeLine(`var results = new List<${resultSetClassName!}>();`);
+                        }
+                        this.csharp.writeLine(async ?
+                            'while (await reader.ReadAsync())':
+                            'while (reader.Read())'
+                        );
                         this.csharp.writeCodeBlock(() => {
-                            this.csharp.writeLine(`yield return mapper.MapDataRecord(reader);`);
+                            if (async) {
+                                this.csharp.writeLine(`results.Add(mapper.MapDataRecord(reader));`);
+                            }
+                            else {
+                                this.csharp.writeLine(`yield return mapper.MapDataRecord(reader);`);
+                            }
                         });
                     }
                 }
                 else {
-                    this.csharp.writeLine('command.ExecuteNonQuery();');
+                    this.csharp.writeLine(async ?
+                        'await command.ExecuteNonQueryAsync();' :
+                        'command.ExecuteNonQuery();');
                 }
                 this.csharp.writeLine('connection.Close();');
                 // Fill output parameters
@@ -130,12 +188,55 @@ export abstract class QueryMethodWriter {
                     }
                     const methodParameter = methodParametersBySqlName.get(p.name)!;
                     const variableName = `p${p.index}`;
-                    this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${variableName}.Value;`);
+                    if (methodParameter.isNullable) {
+                        // E.g. "newProjectId = p6.Value == DBNull.Value ? null : (int?)p6.Value;"
+                        this.csharp.writeLine(`${methodParameter.name} = ${variableName}.Value == DBNull.Value ? null : (${methodParameter.typeName}?) ${variableName}.Value;`);
+                    }
+                    else {
+                        this.csharp.writeLine(`${methodParameter.name} = (${methodParameter.typeName}) ${variableName}.Value;`);
+                    }
                 })
-                if (hasSingleRecordResultSet) {
-                    this.csharp.writeLine('return record;');
+
+                if (hasResultSet) {
+                    if (hasSingleRecordResultSet) {
+                        this.csharp.writeLine('return record;');
+                    }
+                    else {
+                        if (async) {
+                            this.csharp.writeLine('return results;');
+                        }
+                    }
+                }
+                else if (resultParam && async) {
+                    this.csharp.writeLine(`return ${resultParam.name};`);
                 }
             });
+        });
+
+        // Write the public method that calls the internal method.
+        this.csharp.writeLine().writeMethodBlock(method, (cs) => {
+            const args = internalMethod.parameters ?
+                internalMethod.parameters
+                    .map(p => {
+                        if (p.name === 'CancellationToken') {
+                            return 'ct'; // replace with the local cancellation token we get from _sql.ExecuteAsync()
+                        }
+                        return p.isOutput ? 'out ' + p.name : p.name;
+                    }).join(', ') : '';
+
+            cs.writeIndent();
+            if (internalMethod.returnTypeName && internalMethod.returnTypeName !== 'void') {
+                cs.write(`return `);
+            }
+
+            // For async, we use an executor interface that users can pass to implement custom exception handling or retry policies.
+            // We might do the same for sync methods in the future.
+            if (async) {
+                cs.writeEndOfLine(`await _sql.ExecuteAsync(async ct => await ${internalMethod.name}(${args}), "${method.name}", cancellationToken);`)
+            }
+            else {
+                cs.writeEndOfLine(`${internalMethod.name}(${args});`);
+            }
         });
     }
 
@@ -168,10 +269,10 @@ export abstract class QueryMethodWriter {
         // this.csharp.write(`var ${variableName} = new SqlParameter("${parameterName}", SqlDbType.${sqlDbType}) {`);
         // CreateInputParameter(string parameterName, SqlDbType sqlDbType, object value, string? typeName = null, byte? precision = null, byte? scale = null, int? size = null)
         this.csharp.write(`var ${variableName} = CreateInputParameter("${parameterName}", SqlDbType.${sqlDbType}, ${valueSelector}`);
-        this.csharp.write(p.tableType ? `, "${p.tableType.schema}.${p.tableType.name}"`: ', null');        
+        this.csharp.write(p.tableType ? `, "${p.tableType.schema}.${p.tableType.name}"`: ', null');
         this.csharp.write(p.precision || p.scale ? `, ${p.precision}`: ', null');
         this.csharp.write(p.scale ? `, ${p.scale}`: ', null');
-        this.csharp.write(p.length ? `, ${p.length}`: ', null');        
+        this.csharp.write(p.length ? `, ${p.length}`: ', null');
         this.csharp.writeEndOfLine(');');
 
         // Null check

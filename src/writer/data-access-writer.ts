@@ -1,4 +1,4 @@
-import { CSharpWriter, ClassDefinition, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
+import { CSharpWriter, ClassDefinition, InterfaceDefinition, MethodDefinition, ParameterDefinition } from '@yellicode/csharp';
 import { SqlResultSet, DbTable, Database } from '../model/database';
 import { SqlStoredProcedure, SqlServerDatabase } from '../model/sql-server-database';
 import { ReverseSqlObjectNameProvider, DefaultReverseSqlObjectNameProvider } from '../mapper/reverse-sql-object-name-provider';
@@ -15,6 +15,9 @@ import { ReverseSqlTypeNameProvider } from '../mapper/reverse-sql-type-name-prov
 import { BYTE_ARRAY } from '../mapper/csharp-types';
 
 const connectionStringFieldName = '_dbConnectionString';
+const sqlExecutorFieldName = '_sql';
+const sqlExecutorInterfaceName = 'IAsyncSqlExecutor';
+const sqlExecutorClassName = 'DefaultAsyncSqlExecutor';
 
 export class DataAccessWriter {
     private objectNameProvider: ReverseSqlObjectNameProvider;
@@ -30,14 +33,16 @@ export class DataAccessWriter {
         this.options = options || {};
 
         const objectNameEscaping = this.options.objectNameEscaping == null ? ObjectNameEscaping.SqlServer : this.options.objectNameEscaping;
-        
-        this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);                
+        const async = !!this.options.async;
+
+        this.logger = this.options.logger || new ConsoleLogger(console, LogLevel.Info);
         this.objectNameProvider = this.options.objectNameProvider || new DefaultReverseSqlObjectNameProvider(this.options.includeSchema || false);
         this.typeNameProvider = this.options.typeNameProvider || new CSharpReverseSqlTypeNameProvider();
-        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, this.typeNameProvider, objectNameEscaping, connectionStringFieldName);
-        this.storedProcedureMethodWriter = new StoredProcedureMethodWriter(csharp, this.objectNameProvider, connectionStringFieldName);
+        this.tableQueryMethodWriter = new TableQueryMethodWriter(csharp, this.objectNameProvider, this.typeNameProvider, objectNameEscaping, async);
+        this.storedProcedureMethodWriter = new StoredProcedureMethodWriter(csharp, this.objectNameProvider, async);
         this.classBuilder = new ReverseSqlClassBuilder(this.options);
         this.objectNameEscaping = objectNameEscaping;
+
     }
 
     // #region public methods
@@ -88,7 +93,7 @@ export class DataAccessWriter {
         }
 
         if (includeUsingsAndNamespace) {
-            this.csharp.writeUsingDirectives('System', 'System.Collections', 'System.Collections.Generic', 'System.Data', 
+            this.csharp.writeUsingDirectives('System', 'System.Collections', 'System.Collections.Generic', 'System.Data',
                 this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient.Server' : 'Microsoft.SqlServer.Server');
             this.csharp.writeLine();
             this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
@@ -100,7 +105,7 @@ export class DataAccessWriter {
         }
     }
 
-    public writeStoredProcResultSetClasses(db: SqlServerDatabase,  includeUsingsAndNamespace?: boolean): void;
+    public writeStoredProcResultSetClasses(db: SqlServerDatabase, includeUsingsAndNamespace?: boolean): void;
     public writeStoredProcResultSetClasses(storedProcedures: SqlStoredProcedure[], includeUsingsAndNamespace?: boolean): void;
     public writeStoredProcResultSetClasses(data: SqlServerDatabase | SqlStoredProcedure[], includeUsingsAndNamespace: boolean = false): void {
         const sp = Array.isArray(data) ? data : data.storedProcedures;
@@ -131,12 +136,21 @@ export class DataAccessWriter {
 
     public writeDatabaseClass(database: SqlServerDatabase, dbClassName: string, includeUsingsAndNamespace: boolean = false): void {
         if (includeUsingsAndNamespace) {
-            this.csharp.writeUsingDirectives('System', 'System.Collections.Generic', 'System.Data', 
-                this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient' : 'System.Data.SqlClient');
-            this.csharp.writeLine();
-            this.csharp.writeNamespaceBlock({ name: this.namespace }, () => {
-                this.writeDatabaseClassInternal(database, dbClassName);
-            });
+            const usingDirectives: string[] = [
+                'System',
+                'System.Collections.Generic',
+                'System.Data'
+            ];
+            if (this.options.async) {
+                usingDirectives.push('System.Threading', 'System.Threading.Tasks');
+            }
+            usingDirectives.push(this.options.useMicrosoftDataSqlClient ? 'Microsoft.Data.SqlClient' : 'System.Data.SqlClient');
+            this.csharp
+                .writeUsingDirectives(...usingDirectives)
+                .writeLine()
+                .writeNamespaceBlock({ name: this.namespace }, () => {
+                    this.writeDatabaseClassInternal(database, dbClassName);
+                });
         }
         else {
             this.writeDatabaseClassInternal(database, dbClassName);
@@ -144,17 +158,40 @@ export class DataAccessWriter {
     }
 
     private writeDatabaseClassInternal(database: SqlServerDatabase, dbClassName: string): void {
+        const { async } = this.options;
+
+        if (async) {
+            this.writeAsyncSqlExecutorInterface();
+        }
+
+        this.csharp.writeLine();
+
         // Database class
         this.csharp.writeLine(`#region ${dbClassName} class`);
         this.csharp.writeClassBlock({ name: dbClassName, accessModifier: 'public', isPartial: true }, () => {
             // Fields
             this.csharp.writeLine(`protected readonly string ${connectionStringFieldName};`);
+            if (async) {
+                this.csharp.writeLine(`protected readonly ${sqlExecutorInterfaceName} ${sqlExecutorFieldName};`);
+            }
             // Constructor
             const connStringParam: ParameterDefinition = { name: 'connectionString', typeName: 'string' };
-            const ctor: MethodDefinition = { name: dbClassName, accessModifier: 'public', isConstructor: true, parameters: [connStringParam] };
+            let sqlExecutorParam: ParameterDefinition | undefined;
+            let ctor: MethodDefinition;
+            if (async) {
+                sqlExecutorParam = { name: 'sql', typeName: sqlExecutorInterfaceName, isNullable: true, defaultValue: 'null' };
+                ctor = { name: dbClassName, accessModifier: 'public', isConstructor: true, parameters: [connStringParam, sqlExecutorParam] };
+            }
+            else {
+                ctor = { name: dbClassName, accessModifier: 'public', isConstructor: true, parameters: [connStringParam] };
+            }
+
             this.csharp.writeLine();
             this.csharp.writeMethodBlock(ctor, () => {
                 this.csharp.writeLine(`this.${connectionStringFieldName} = ${connStringParam.name};`);
+                if (sqlExecutorParam) {
+                    this.csharp.writeLine(`this.${sqlExecutorFieldName} = ${sqlExecutorParam.name} ?? new ${sqlExecutorClassName}();`);
+                }
             })
 
             // Stored procedure calls
@@ -173,17 +210,21 @@ export class DataAccessWriter {
                 this.csharp.writeLine('#endregion Table data access calls');
             }
 
+            // Connection and command interfaces do not support async operations, return concrete types.
+            const dbConnectionReturnType = this.options.async ? 'SqlConnection' : 'IDbConnection';
+            const dbCommandReturnType = this.options.async ? 'SqlCommand' : 'IDbCommand';
+
             // Abstractions
             this.csharp
                 .writeLine()
-                .writeLine(`protected virtual IDbConnection CreateConnection() { return new SqlConnection(this.${connectionStringFieldName}); }`);
+                .writeLine(`protected virtual ${dbConnectionReturnType} CreateConnection() { return new SqlConnection(this.${connectionStringFieldName}); }`);
             this.csharp
                 .writeLine()
-                .writeLine('protected virtual IDbCommand CreateCommand(string commandText, IDbConnection connection, CommandType commandType) { return new SqlCommand(commandText, (SqlConnection)connection) { CommandType = commandType };}');
+                .writeLine(`protected virtual ${dbCommandReturnType} CreateCommand(string commandText, IDbConnection connection, CommandType commandType) { return new SqlCommand(commandText, (SqlConnection)connection) { CommandType = commandType };}`);
             this.csharp
                 .writeLine()
                 .writeLine('protected virtual IDataParameter CreateOutputParameter(string parameterName, SqlDbType sqlDbType) { return new SqlParameter(parameterName, sqlDbType) { Direction = ParameterDirection.Output }; }');
-                this.csharp
+            this.csharp
                 .writeLine()
                 .writeLine('protected virtual void AddParameterWithValue(IDataParameterCollection parameters, string parameterName, object value) { ((SqlParameterCollection) parameters).AddWithValue(parameterName, value); }');
             this.csharp
@@ -191,13 +232,13 @@ export class DataAccessWriter {
                 .writeLine('protected virtual IDataParameter CreateInputParameter(string parameterName, SqlDbType sqlDbType, object value, string typeName = null, byte? precision = null, byte? scale = null, int? size = null)')
                 .writeCodeBlock(() => {
                     this.csharp
-                    .writeLine('var p = new SqlParameter(parameterName, sqlDbType) { Direction = ParameterDirection.Input, Value = value };')
-                    .writeLine('if (typeName != null) p.TypeName = typeName;')
-                    .writeLine('if (precision.HasValue) p.Precision = precision.Value;')
-                    .writeLine('if (scale.HasValue) p.Scale = scale.Value;')
-                    .writeLine('if (size.HasValue) p.Size = size.Value;')
-                    .writeLine('return p;');
-            })
+                        .writeLine('var p = new SqlParameter(parameterName, sqlDbType) { Direction = ParameterDirection.Input, Value = value };')
+                        .writeLine('if (typeName != null) p.TypeName = typeName;')
+                        .writeLine('if (precision.HasValue) p.Precision = precision.Value;')
+                        .writeLine('if (scale.HasValue) p.Scale = scale.Value;')
+                        .writeLine('if (size.HasValue) p.Size = size.Value;')
+                        .writeLine('return p;');
+                })
 
             // Write the WhereBuilder class
             this.csharp.writeLine();
@@ -250,7 +291,7 @@ export class DataAccessWriter {
         this.csharp
             .writeLine('internal interface IDataRecordMapper<T>')
             .writeLine('{')
-            .writeLineIndented(' T MapDataRecord(IDataRecord dataRecord);')            
+            .writeLineIndented(' T MapDataRecord(IDataRecord dataRecord);')
             .writeLine('}');
     }
 
@@ -280,8 +321,8 @@ export class DataAccessWriter {
             // Fields
             cs.writeLine('private readonly int[] _indices;');
             // Constructor
-            const ctorParameter: ParameterDefinition = {name: 'indices', typeName: 'int[]'};
-            const ctor: MethodDefinition = { name: mapperClassDefinition.name, isConstructor: true, accessModifier: 'private', parameters: [ctorParameter]};
+            const ctorParameter: ParameterDefinition = { name: 'indices', typeName: 'int[]' };
+            const ctor: MethodDefinition = { name: mapperClassDefinition.name, isConstructor: true, accessModifier: 'private', parameters: [ctorParameter] };
             cs.writeLine();
             cs.writeMethodBlock(ctor, () => {
                 cs.writeLine(`_indices = ${ctorParameter.name};`);
@@ -289,7 +330,7 @@ export class DataAccessWriter {
 
             // Factory method
             const dataReaderParameter: ParameterDefinition = { name: 'dataReader', typeName: 'IDataReader' };
-            const factoryMethod: MethodDefinition = {name: 'Create',  accessModifier: 'public', isStatic: true, returnTypeName: mapperClassDefinition.name, parameters: [dataReaderParameter]};
+            const factoryMethod: MethodDefinition = { name: 'Create', accessModifier: 'public', isStatic: true, returnTypeName: mapperClassDefinition.name, parameters: [dataReaderParameter] };
             cs.writeLine();
             cs.writeMethodBlock(factoryMethod, () => {
                 cs.writeLine('int[] indices = {');
@@ -468,4 +509,57 @@ export class DataAccessWriter {
     }
 
     // #endregion queries
+
+    private writeAsyncSqlExecutorInterface(): void {
+        const scalarMethod: MethodDefinition = {
+            name: 'ExecuteAsync',
+            accessModifier: 'public',
+            returnTypeName: 'Task',
+            parameters: [
+                { name: 'operation', typeName: 'Func<CancellationToken, Task>' },
+                { name: 'operationKey', typeName: 'string' },
+                { name: 'cancellationToken', typeName: 'CancellationToken', defaultValue: 'default' }
+            ]
+        };
+
+        const nonScalarMethod: MethodDefinition = {
+            name: 'ExecuteAsync<TResult>',
+            accessModifier: 'public',
+            returnTypeName: 'Task<TResult>',
+            parameters: [
+                { name: 'operation', typeName: 'Func<CancellationToken, Task<TResult>>' },
+                { name: 'operationKey', typeName: 'string' },
+                { name: 'cancellationToken', typeName: 'CancellationToken', defaultValue: 'default' }
+            ]
+        };
+
+        const interfaceDefinition: InterfaceDefinition = {
+            name: sqlExecutorInterfaceName,
+            accessModifier: 'public'
+        }
+
+        this.csharp.writeInterfaceBlock(interfaceDefinition, (cs) => {
+            cs
+                .writeMethodDeclaration(scalarMethod)
+                .writeMethodDeclaration(nonScalarMethod);
+        })
+
+        // Default implementation
+        this.csharp
+            .writeLine()
+            .writeClassBlock({
+                name: sqlExecutorClassName,
+                accessModifier: 'public',
+                implements: [interfaceDefinition.name]
+            }, (cs) => {
+                cs
+                    .writeMethodBlock(scalarMethod, () => {
+                        cs.writeLine('return operation(cancellationToken);');
+                    })
+                    .writeLine()
+                    .writeMethodBlock(nonScalarMethod, () => {
+                        cs.writeLine('return operation(cancellationToken);');
+                    })
+            });
+    }
 }

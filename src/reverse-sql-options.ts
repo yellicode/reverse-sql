@@ -45,7 +45,7 @@ export enum ObjectNameEscaping {
     /**
      * Surrounds object names by square brackets. This is the default.
      */
-    SqlServer = 1    
+    SqlServer = 1
 }
 
 /**
@@ -129,6 +129,11 @@ export interface ReverseSqlOptions {
      * See https://devblogs.microsoft.com/dotnet/introducing-the-new-microsoftdatasqlclient/
      */
     useMicrosoftDataSqlClient?: boolean;
+
+    /**
+     * True if all generated data-access code must be async.
+     */
+    async?: boolean;
 
     /**
      * Sets an optional logger.
